@@ -1,6 +1,7 @@
 """Core state models for the orchestration kernel."""
 
 from .codec import decode_executor_policy, decode_initiative, decode_project, decode_requirement_event, decode_seam, decode_snapshot, decode_work_package, encode_snapshot
+from .design import ClosureItem, ClosureType, DomainSpec, InteractionMatrixEntry, ProductDesign, UserFlow
 from .executor_policy import ExecutorPolicy
 from .executor_result import ExecutorResult
 from .initiative import InitiativeState
@@ -12,6 +13,12 @@ from .workspace import QueueState, WorkspaceState
 
 __all__ = [
     "Assumption",
+    "ClosureItem",
+    "ClosureType",
+    "DomainSpec",
+    "InteractionMatrixEntry",
+    "ProductDesign",
+    "UserFlow",
     "decode_executor_policy",
     "decode_initiative",
     "decode_project",

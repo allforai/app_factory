@@ -53,3 +53,5 @@ class WorkPackage:
     max_attempts: int = 3
     created_at: str | None = None
     updated_at: str | None = None
+    derivation_ring: int = 0
+    backfill_source: str | None = None
