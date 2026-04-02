@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from devforge.main import main, run_snapshot_cycle
 
@@ -208,3 +209,63 @@ def test_run_snapshot_cycle_supports_persistence_root(tmp_path) -> None:
 
     assert result["runtime"]["cycle_id"] == "cycle-0001"
     assert (tmp_path / "runtime" / "workspace.sqlite3").exists()
+
+
+def test_main_init_command_writes_all_files_into_runtime_directory(capsys, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["init"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    runtime_root = tmp_path / ".devforge-runtime"
+    snapshot_path = runtime_root / "devforge.snapshot.json"
+    project_config_path = runtime_root / "devforge.project_config.json"
+
+    assert exit_code == 0
+    assert payload["runtime_root"] == ".devforge-runtime"
+    assert payload["snapshot_path"] == ".devforge-runtime/devforge.snapshot.json"
+    assert payload["project_config_path"] == ".devforge-runtime/devforge.project_config.json"
+    assert snapshot_path.exists()
+    assert project_config_path.exists()
+
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["projects"][0]["artifacts"]["repo_paths"] == ["."]
+    assert snapshot["work_packages"][0]["work_package_id"] == "wp-repo-onboarding"
+
+
+def test_main_init_command_refuses_to_overwrite_existing_files(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runtime_root = tmp_path / ".devforge-runtime"
+    runtime_root.mkdir()
+    (runtime_root / "devforge.snapshot.json").write_text("{}", encoding="utf-8")
+
+    try:
+        main(["init"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected parser error when init would overwrite files")
+
+
+def test_main_init_workspace_command_creates_guardian_entry(capsys, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "api").mkdir()
+    (tmp_path / "api" / "pyproject.toml").write_text("[project]\nname='api'\n", encoding="utf-8")
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "package.json").write_text('{"name":"web"}\n', encoding="utf-8")
+
+    exit_code = main(["init", "--workspace", "--name", "Demo Workspace"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    snapshot_path = tmp_path / ".devforge-runtime" / "devforge.snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert payload["mode"] == "workspace"
+    assert set(payload["discovered_projects"]) == {"api", "web"}
+    assert snapshot["initiative"]["scheduler_state"]["foreground_project"] == "demo-workspace-guardian"
+    assert snapshot["projects"][0]["coordination_project"] is True
+    assert snapshot["projects"][0]["children"] == ["api", "web"]
+    assert snapshot["work_packages"][0]["work_package_id"] == "wp-workspace-guardian"

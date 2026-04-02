@@ -2,6 +2,26 @@
 
 `devforge` can run one orchestration cycle from either a built-in fixture or an arbitrary snapshot file.
 
+## Init
+
+```bash
+devforge init
+devforge init --force
+devforge init --name "My Existing Project"
+devforge init --workspace
+```
+
+`init` writes starter files into `./.devforge-runtime/`:
+
+- `./.devforge-runtime/devforge.snapshot.json`
+- `./.devforge-runtime/devforge.project_config.json`
+
+It also prepares `./.devforge-runtime/` as the default persistence root for later runs.
+
+Use `--workspace` when the current directory is a multi-project root. DevForge will
+create a guardian coordination project and register each discovered child project
+that contains a common project marker such as `pyproject.toml`, `package.json`, or `go.mod`.
+
 ## Fixture
 
 ```bash
@@ -16,12 +36,12 @@ Fixture runs automatically apply a sibling `*.project_config.json` file when pre
 ## Snapshot
 
 ```bash
-devforge snapshot ./my_snapshot.json
-devforge snapshot ./my_snapshot.json --project-config ./my_project_config.json
-devforge snapshot ./my_snapshot.json --persistence-root ./.runtime --json
-python -m devforge.main snapshot ./my_snapshot.json
-python -m devforge.main snapshot ./my_snapshot.json --project-config ./my_project_config.json
-python -m devforge.main snapshot ./my_snapshot.json --persistence-root ./.runtime --json
+devforge snapshot ./.devforge-runtime/devforge.snapshot.json
+devforge snapshot ./.devforge-runtime/devforge.snapshot.json --project-config ./.devforge-runtime/devforge.project_config.json
+devforge snapshot ./.devforge-runtime/devforge.snapshot.json --persistence-root ./.devforge-runtime --json
+python -m devforge.main snapshot ./.devforge-runtime/devforge.snapshot.json
+python -m devforge.main snapshot ./.devforge-runtime/devforge.snapshot.json --project-config ./.devforge-runtime/devforge.project_config.json
+python -m devforge.main snapshot ./.devforge-runtime/devforge.snapshot.json --persistence-root ./.devforge-runtime --json
 ```
 
 `--persistence-root` creates a local runtime workspace using:
