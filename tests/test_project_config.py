@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app_factory.config import apply_project_config, load_project_config, maybe_apply_fixture_project_config
+from devforge.config import apply_project_config, load_project_config, maybe_apply_fixture_project_config
 
 
 def test_load_project_config_reads_json(tmp_path) -> None:

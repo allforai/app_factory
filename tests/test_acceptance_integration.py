@@ -1,8 +1,8 @@
 """Integration: results → seam check → acceptance → gap → remediation."""
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import acceptance_and_gap_check_node
-from app_factory.seams.verifier import verify_seam_compliance
-from app_factory.llm import MockLLMClient
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import acceptance_and_gap_check_node
+from devforge.seams.verifier import verify_seam_compliance
+from devforge.llm import MockLLMClient
 
 def test_full_acceptance_pass_pipeline():
     """All work done → seams verified → acceptance passes → terminate."""

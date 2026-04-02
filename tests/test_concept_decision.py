@@ -1,4 +1,4 @@
-from app_factory.planning.concept_decision import llm_concept_collection_decider
+from devforge.planning.concept_decision import llm_concept_collection_decider
 
 
 def test_llm_concept_collection_decider_returns_structured_decision() -> None:

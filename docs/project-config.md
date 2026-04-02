@@ -75,5 +75,5 @@ Schema:
 
 See:
 
-- [pull_policy_overrides.example.json](/Users/aa/workspace/app_factory/src/app_factory/fixtures/pull_policy_overrides.example.json)
-- [ecommerce_project.project_config.json](/Users/aa/workspace/app_factory/src/app_factory/fixtures/ecommerce_project.project_config.json)
+- [pull_policy_overrides.example.json](/Users/aa/workspace/devforge/src/devforge/fixtures/pull_policy_overrides.example.json)
+- [ecommerce_project.project_config.json](/Users/aa/workspace/devforge/src/devforge/fixtures/ecommerce_project.project_config.json)

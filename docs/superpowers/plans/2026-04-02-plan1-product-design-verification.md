@@ -14,15 +14,15 @@
 
 | File | Responsibility |
 |------|---------------|
-| Create: `src/app_factory/planning/design_generator.py` | LLM-driven product design generation from concept — domain decomposition, user flows, interaction matrix |
-| Create: `src/app_factory/planning/design_validator.py` | Structural validation of design — dependency cycles, seam completeness, feasibility flags |
-| Create: `src/app_factory/planning/closure_expander.py` | Ring-based closure derivation with convergence control |
-| Create: `src/app_factory/state/design.py` | Design artifact dataclasses — ProductDesign, DomainSpec, UserFlow, ClosureItem, InteractionMatrixEntry |
-| Modify: `src/app_factory/state/work_package.py` | Add `derivation_ring` and `backfill_source` fields |
-| Modify: `src/app_factory/state/__init__.py` | Re-export new design types |
-| Modify: `src/app_factory/llm/mock.py` | Add mock responses for `product_design`, `design_validation`, `closure_expansion` tasks |
-| Modify: `src/app_factory/graph/nodes.py` | Add `product_design_node`, `design_validation_node`, `closure_expansion_node` |
-| Modify: `src/app_factory/graph/builder.py` | Wire new nodes into `run_cycle` |
+| Create: `src/devforge/planning/design_generator.py` | LLM-driven product design generation from concept — domain decomposition, user flows, interaction matrix |
+| Create: `src/devforge/planning/design_validator.py` | Structural validation of design — dependency cycles, seam completeness, feasibility flags |
+| Create: `src/devforge/planning/closure_expander.py` | Ring-based closure derivation with convergence control |
+| Create: `src/devforge/state/design.py` | Design artifact dataclasses — ProductDesign, DomainSpec, UserFlow, ClosureItem, InteractionMatrixEntry |
+| Modify: `src/devforge/state/work_package.py` | Add `derivation_ring` and `backfill_source` fields |
+| Modify: `src/devforge/state/__init__.py` | Re-export new design types |
+| Modify: `src/devforge/llm/mock.py` | Add mock responses for `product_design`, `design_validation`, `closure_expansion` tasks |
+| Modify: `src/devforge/graph/nodes.py` | Add `product_design_node`, `design_validation_node`, `closure_expansion_node` |
+| Modify: `src/devforge/graph/builder.py` | Wire new nodes into `run_cycle` |
 | Create: `tests/test_design_generator.py` | Tests for design generation |
 | Create: `tests/test_design_validator.py` | Tests for validation logic |
 | Create: `tests/test_closure_expander.py` | Tests for Ring-based expansion and convergence |
@@ -33,9 +33,9 @@
 ### Task 1: Design Artifact Data Model
 
 **Files:**
-- Create: `src/app_factory/state/design.py`
-- Modify: `src/app_factory/state/__init__.py`
-- Modify: `src/app_factory/state/work_package.py:23-55`
+- Create: `src/devforge/state/design.py`
+- Modify: `src/devforge/state/__init__.py`
+- Modify: `src/devforge/state/work_package.py:23-55`
 - Test: `tests/test_design_model.py`
 
 - [ ] **Step 1: Write the failing test for design data model**
@@ -44,7 +44,7 @@
 # tests/test_design_model.py
 """Tests for product design data model."""
 
-from app_factory.state.design import (
+from devforge.state.design import (
     ClosureItem,
     ClosureType,
     DomainSpec,
@@ -176,13 +176,13 @@ def test_interaction_matrix_quadrants():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_model.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'app_factory.state.design'`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_model.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'devforge.state.design'`
 
 - [ ] **Step 3: Implement the design data model**
 
 ```python
-# src/app_factory/state/design.py
+# src/devforge/state/design.py
 """Product design artifact models."""
 
 from __future__ import annotations
@@ -272,7 +272,7 @@ class ProductDesign:
 
 - [ ] **Step 4: Add derivation_ring to WorkPackage**
 
-In `src/app_factory/state/work_package.py`, add two fields after `updated_at`:
+In `src/devforge/state/work_package.py`, add two fields after `updated_at`:
 
 ```python
     derivation_ring: int = 0
@@ -281,7 +281,7 @@ In `src/app_factory/state/work_package.py`, add two fields after `updated_at`:
 
 - [ ] **Step 5: Update state __init__.py exports**
 
-Add to `src/app_factory/state/__init__.py` the new design types:
+Add to `src/devforge/state/__init__.py` the new design types:
 
 ```python
 from .design import ClosureItem, ClosureType, DomainSpec, InteractionMatrixEntry, ProductDesign, UserFlow
@@ -289,13 +289,13 @@ from .design import ClosureItem, ClosureType, DomainSpec, InteractionMatrixEntry
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_model.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_model.py -v`
 Expected: All 5 tests PASS
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/app_factory/state/design.py src/app_factory/state/work_package.py src/app_factory/state/__init__.py tests/test_design_model.py
+git add src/devforge/state/design.py src/devforge/state/work_package.py src/devforge/state/__init__.py tests/test_design_model.py
 git commit -m "feat: add product design data model with Ring-based closure types"
 ```
 
@@ -304,8 +304,8 @@ git commit -m "feat: add product design data model with Ring-based closure types
 ### Task 2: Design Generator (LLM-driven)
 
 **Files:**
-- Create: `src/app_factory/planning/design_generator.py`
-- Modify: `src/app_factory/llm/mock.py:17-135`
+- Create: `src/devforge/planning/design_generator.py`
+- Modify: `src/devforge/llm/mock.py:17-135`
 - Test: `tests/test_design_generator.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -314,8 +314,8 @@ git commit -m "feat: add product design data model with Ring-based closure types
 # tests/test_design_generator.py
 """Tests for LLM-driven product design generation."""
 
-from app_factory.llm import MockLLMClient
-from app_factory.planning.design_generator import generate_product_design
+from devforge.llm import MockLLMClient
+from devforge.planning.design_generator import generate_product_design
 
 
 def test_generate_design_from_concept():
@@ -393,12 +393,12 @@ def test_design_has_interaction_matrix_for_all_quadrants():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_generator.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_generator.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Add mock response for product_design task**
 
-In `src/app_factory/llm/mock.py`, add a handler in `generate_structured` after the `planning_and_shaping` block and a new method:
+In `src/devforge/llm/mock.py`, add a handler in `generate_structured` after the `planning_and_shaping` block and a new method:
 
 ```python
         if request.task == "product_design":
@@ -477,7 +477,7 @@ Add the method:
 - [ ] **Step 4: Implement design generator**
 
 ```python
-# src/app_factory/planning/design_generator.py
+# src/devforge/planning/design_generator.py
 """LLM-driven product design generation from concept artifacts."""
 
 from __future__ import annotations
@@ -485,8 +485,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from app_factory.llm import LLMClient, MockLLMClient, StructuredGenerationRequest, build_task_llm_client
-from app_factory.state.design import (
+from devforge.llm import LLMClient, MockLLMClient, StructuredGenerationRequest, build_task_llm_client
+from devforge.state.design import (
     DomainSpec,
     InteractionMatrixEntry,
     ProductDesign,
@@ -578,13 +578,13 @@ def generate_product_design(
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_generator.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_generator.py -v`
 Expected: All 3 tests PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app_factory/planning/design_generator.py src/app_factory/llm/mock.py tests/test_design_generator.py
+git add src/devforge/planning/design_generator.py src/devforge/llm/mock.py tests/test_design_generator.py
 git commit -m "feat: add LLM-driven product design generator with mock"
 ```
 
@@ -593,7 +593,7 @@ git commit -m "feat: add LLM-driven product design generator with mock"
 ### Task 3: Design Validator
 
 **Files:**
-- Create: `src/app_factory/planning/design_validator.py`
+- Create: `src/devforge/planning/design_validator.py`
 - Test: `tests/test_design_validator.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -602,8 +602,8 @@ git commit -m "feat: add LLM-driven product design generator with mock"
 # tests/test_design_validator.py
 """Tests for product design structural validation."""
 
-from app_factory.state.design import DomainSpec, ProductDesign, UserFlow
-from app_factory.planning.design_validator import validate_design, ValidationResult
+from devforge.state.design import DomainSpec, ProductDesign, UserFlow
+from devforge.planning.design_validator import validate_design, ValidationResult
 
 
 def _make_design(**overrides) -> ProductDesign:
@@ -695,20 +695,20 @@ def test_iteration_fix_tracking():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_validator.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_validator.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement design validator**
 
 ```python
-# src/app_factory/planning/design_validator.py
+# src/devforge/planning/design_validator.py
 """Structural validation of product design artifacts."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app_factory.state.design import ProductDesign
+from devforge.state.design import ProductDesign
 
 
 @dataclass(slots=True)
@@ -826,13 +826,13 @@ def validate_design(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_validator.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_validator.py -v`
 Expected: All 7 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/planning/design_validator.py tests/test_design_validator.py
+git add src/devforge/planning/design_validator.py tests/test_design_validator.py
 git commit -m "feat: add design validator with cycle detection and seam completeness"
 ```
 
@@ -841,7 +841,7 @@ git commit -m "feat: add design validator with cycle detection and seam complete
 ### Task 4: Closure Expander (Ring-based convergence)
 
 **Files:**
-- Create: `src/app_factory/planning/closure_expander.py`
+- Create: `src/devforge/planning/closure_expander.py`
 - Test: `tests/test_closure_expander.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -850,12 +850,12 @@ git commit -m "feat: add design validator with cycle detection and seam complete
 # tests/test_closure_expander.py
 """Tests for Ring-based closure expansion with convergence control."""
 
-from app_factory.planning.closure_expander import (
+from devforge.planning.closure_expander import (
     expand_closures,
     ClosureExpansionResult,
     CLOSURE_DIMENSIONS,
 )
-from app_factory.state.design import ClosureItem
+from devforge.state.design import ClosureItem
 
 
 def test_ring_1_expansion_from_core_tasks():
@@ -942,13 +942,13 @@ def test_expansion_result_has_coverage_stats():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_closure_expander.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_closure_expander.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement closure expander**
 
 ```python
-# src/app_factory/planning/closure_expander.py
+# src/devforge/planning/closure_expander.py
 """Ring-based closure expansion with convergence control.
 
 Three convergence principles:
@@ -964,7 +964,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app_factory.state.design import ClosureItem, ClosureType
+from devforge.state.design import ClosureItem, ClosureType
 
 CLOSURE_DIMENSIONS: list[ClosureType] = [
     "configuration",
@@ -1112,13 +1112,13 @@ def expand_closures(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_closure_expander.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_closure_expander.py -v`
 Expected: All 10 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/planning/closure_expander.py tests/test_closure_expander.py
+git add src/devforge/planning/closure_expander.py tests/test_closure_expander.py
 git commit -m "feat: add Ring-based closure expander with convergence control"
 ```
 
@@ -1127,8 +1127,8 @@ git commit -m "feat: add Ring-based closure expander with convergence control"
 ### Task 5: Wire into Graph Nodes
 
 **Files:**
-- Modify: `src/app_factory/graph/nodes.py:1-86`
-- Modify: `src/app_factory/planning/__init__.py`
+- Modify: `src/devforge/graph/nodes.py:1-86`
+- Modify: `src/devforge/planning/__init__.py`
 - Test: `tests/test_design_nodes.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -1137,9 +1137,9 @@ git commit -m "feat: add Ring-based closure expander with convergence control"
 # tests/test_design_nodes.py
 """Tests for design-related graph nodes."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import product_design_node, design_validation_node, closure_expansion_node
-from app_factory.llm import MockLLMClient
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import product_design_node, design_validation_node, closure_expansion_node
+from devforge.llm import MockLLMClient
 
 
 def test_product_design_node_attaches_design():
@@ -1229,12 +1229,12 @@ def test_closure_expansion_node():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_nodes.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_nodes.py -v`
 Expected: FAIL with `ImportError`
 
 - [ ] **Step 3: Add fields to RuntimeState**
 
-In `src/app_factory/graph/runtime_state.py`, add these fields to the `RuntimeState` dataclass:
+In `src/devforge/graph/runtime_state.py`, add these fields to the `RuntimeState` dataclass:
 
 ```python
     product_design: dict[str, object] | None = None
@@ -1245,13 +1245,13 @@ In `src/app_factory/graph/runtime_state.py`, add these fields to the `RuntimeSta
 
 - [ ] **Step 4: Implement the three new graph nodes**
 
-Append to `src/app_factory/graph/nodes.py`:
+Append to `src/devforge/graph/nodes.py`:
 
 ```python
-from app_factory.planning.design_generator import generate_product_design
-from app_factory.planning.design_validator import validate_design
-from app_factory.planning.closure_expander import expand_closures
-from app_factory.state.design import DomainSpec, ProductDesign, UserFlow
+from devforge.planning.design_generator import generate_product_design
+from devforge.planning.design_validator import validate_design
+from devforge.planning.closure_expander import expand_closures
+from devforge.state.design import DomainSpec, ProductDesign, UserFlow
 
 
 def product_design_node(
@@ -1359,7 +1359,7 @@ def closure_expansion_node(
 
 - [ ] **Step 5: Update planning __init__.py exports**
 
-Add to `src/app_factory/planning/__init__.py`:
+Add to `src/devforge/planning/__init__.py`:
 
 ```python
 from .design_generator import generate_product_design
@@ -1369,13 +1369,13 @@ from .closure_expander import expand_closures, ClosureExpansionResult
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_nodes.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_nodes.py -v`
 Expected: All 4 tests PASS
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/app_factory/graph/nodes.py src/app_factory/graph/runtime_state.py src/app_factory/planning/__init__.py tests/test_design_nodes.py
+git add src/devforge/graph/nodes.py src/devforge/graph/runtime_state.py src/devforge/planning/__init__.py tests/test_design_nodes.py
 git commit -m "feat: wire design generation, validation, and closure expansion into graph nodes"
 ```
 
@@ -1392,14 +1392,14 @@ git commit -m "feat: wire design generation, validation, and closure expansion i
 # tests/test_design_integration.py
 """Integration test: concept → design → validate → expand → verify coverage."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     concept_collection_node,
     product_design_node,
     design_validation_node,
     closure_expansion_node,
 )
-from app_factory.llm import MockLLMClient
+from devforge.llm import MockLLMClient
 
 
 def test_ecommerce_full_design_pipeline():
@@ -1501,12 +1501,12 @@ def test_invalid_design_triggers_replan():
 
 - [ ] **Step 2: Run the integration test**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest tests/test_design_integration.py -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest tests/test_design_integration.py -v`
 Expected: All 3 tests PASS
 
 - [ ] **Step 3: Run the full test suite to verify no regressions**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest -v`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest -v`
 Expected: All existing tests PASS + all new tests PASS
 
 - [ ] **Step 4: Commit**
@@ -1522,12 +1522,12 @@ git commit -m "feat: add integration tests for full design pipeline (ecommerce +
 
 - [ ] **Step 1: Run the complete test suite**
 
-Run: `cd /Users/aa/workspace/app_factory && python -m pytest -v --tb=short`
+Run: `cd /Users/aa/workspace/devforge && python -m pytest -v --tb=short`
 Expected: All tests PASS, no import errors, no regressions
 
 - [ ] **Step 2: Verify file structure matches plan**
 
-Run: `ls -la src/app_factory/state/design.py src/app_factory/planning/design_generator.py src/app_factory/planning/design_validator.py src/app_factory/planning/closure_expander.py`
+Run: `ls -la src/devforge/state/design.py src/devforge/planning/design_generator.py src/devforge/planning/design_validator.py src/devforge/planning/closure_expander.py`
 Expected: All 4 files exist
 
 - [ ] **Step 3: Verify all new test files**

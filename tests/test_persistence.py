@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app_factory.persistence import (
+from devforge.persistence import (
     FileArtifactStore,
     JsonMemoryStore,
     JsonStore,
@@ -10,8 +10,8 @@ from app_factory.persistence import (
     build_local_workspace_persistence,
     sqlite_schema,
 )
-from app_factory.planning import apply_project_split, apply_requirement_events, freeze_seam, verify_seam
-from app_factory.state import RequirementEvent
+from devforge.planning import apply_project_split, apply_requirement_events, freeze_seam, verify_seam
+from devforge.state import RequirementEvent
 
 
 def test_json_store_lists_loads_and_saves_snapshots(tmp_path: Path) -> None:

@@ -1,7 +1,7 @@
 import json
 
-from app_factory.context import ContextBroker
-from app_factory.persistence import FileArtifactStore, JsonMemoryStore
+from devforge.context import ContextBroker
+from devforge.persistence import FileArtifactStore, JsonMemoryStore
 
 
 def test_context_broker_resolves_knowledge_and_project_refs() -> None:

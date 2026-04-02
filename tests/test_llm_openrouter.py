@@ -1,5 +1,5 @@
-from app_factory.llm import OpenRouterClient, StructuredGenerationRequest, build_llm_client
-from app_factory.llm.http import HTTPTransport, StubHTTPTransport, TransportRequest, TransportResponse
+from devforge.llm import OpenRouterClient, StructuredGenerationRequest, build_llm_client
+from devforge.llm.http import HTTPTransport, StubHTTPTransport, TransportRequest, TransportResponse
 
 
 def test_openrouter_client_builds_chat_completion_payload() -> None:

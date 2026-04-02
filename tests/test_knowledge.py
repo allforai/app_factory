@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from app_factory.knowledge import build_specialized_knowledge, get_knowledge_document, list_knowledge_documents, select_knowledge_for_context
-from app_factory.knowledge.packets import build_node_knowledge_packet
+from devforge.knowledge import build_specialized_knowledge, get_knowledge_document, list_knowledge_documents, select_knowledge_for_context
+from devforge.knowledge.packets import build_node_knowledge_packet
 
 
 def test_knowledge_registry_points_to_local_files() -> None:

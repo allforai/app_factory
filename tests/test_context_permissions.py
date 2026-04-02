@@ -1,5 +1,5 @@
 """Tests for status-aware permission isolation in context broker."""
-from app_factory.context.broker import ContextBroker
+from devforge.context.broker import ContextBroker
 
 
 def _make_snapshot_with_work_packages():

@@ -1,6 +1,6 @@
 """Tests for seam contract compliance verifier."""
 import pytest
-from app_factory.seams.verifier import (
+from devforge.seams.verifier import (
     SeamViolation,
     SeamComplianceResult,
     verify_seam_compliance,

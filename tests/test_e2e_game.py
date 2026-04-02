@@ -4,19 +4,19 @@ Validates: project split, seam freeze/break, parallel execution,
 requirement change, multi-round convergence.
 """
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     concept_collection_node,
     product_design_node,
     design_validation_node,
     closure_expansion_node,
     acceptance_and_gap_check_node,
 )
-from app_factory.seams.verifier import verify_seam_compliance
-from app_factory.planning.graph_patch import apply_requirement_events, apply_project_split
-from app_factory.scheduler import select_workset
-from app_factory.state import RequirementEvent, SeamState, WorkPackage, decode_snapshot
-from app_factory.llm import MockLLMClient
+from devforge.seams.verifier import verify_seam_compliance
+from devforge.planning.graph_patch import apply_requirement_events, apply_project_split
+from devforge.scheduler import select_workset
+from devforge.state import RequirementEvent, SeamState, WorkPackage, decode_snapshot
+from devforge.llm import MockLLMClient
 from tests.fixtures.e2e_game_snapshot import make_game_snapshot
 
 

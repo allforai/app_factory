@@ -1,6 +1,6 @@
 """Tests for acceptance and gap data models."""
 import pytest
-from app_factory.state.acceptance import (
+from devforge.state.acceptance import (
     AcceptanceVerdict,
     ClosureDensityScore,
     GapItem,

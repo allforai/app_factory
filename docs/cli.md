@@ -1,14 +1,14 @@
 # CLI
 
-`app_factory` can run one orchestration cycle from either a built-in fixture or an arbitrary snapshot file.
+`devforge` can run one orchestration cycle from either a built-in fixture or an arbitrary snapshot file.
 
 ## Fixture
 
 ```bash
 devforge fixture game_project
 devforge fixture ecommerce_project --json
-python -m app_factory.main fixture game_project
-python -m app_factory.main fixture ecommerce_project --json
+python -m devforge.main fixture game_project
+python -m devforge.main fixture ecommerce_project --json
 ```
 
 Fixture runs automatically apply a sibling `*.project_config.json` file when present.
@@ -19,9 +19,9 @@ Fixture runs automatically apply a sibling `*.project_config.json` file when pre
 devforge snapshot ./my_snapshot.json
 devforge snapshot ./my_snapshot.json --project-config ./my_project_config.json
 devforge snapshot ./my_snapshot.json --persistence-root ./.runtime --json
-python -m app_factory.main snapshot ./my_snapshot.json
-python -m app_factory.main snapshot ./my_snapshot.json --project-config ./my_project_config.json
-python -m app_factory.main snapshot ./my_snapshot.json --persistence-root ./.runtime --json
+python -m devforge.main snapshot ./my_snapshot.json
+python -m devforge.main snapshot ./my_snapshot.json --project-config ./my_project_config.json
+python -m devforge.main snapshot ./my_snapshot.json --persistence-root ./.runtime --json
 ```
 
 `--persistence-root` creates a local runtime workspace using:

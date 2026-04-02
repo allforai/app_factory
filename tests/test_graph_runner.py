@@ -1,9 +1,9 @@
-from app_factory.graph import build_meta_graph
-from app_factory.graph.builder import _apply_executor_result, run_cycle
-from app_factory.graph.transitions import next_step_for_state
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.main import run_fixture_cycle
-from app_factory.persistence import (
+from devforge.graph import build_meta_graph
+from devforge.graph.builder import _apply_executor_result, run_cycle
+from devforge.graph.transitions import next_step_for_state
+from devforge.graph.runtime_state import RuntimeState
+from devforge.main import run_fixture_cycle
+from devforge.persistence import (
     FileArtifactStore,
     JsonMemoryStore,
     JsonStore,
@@ -93,7 +93,7 @@ def test_run_fixture_cycle_applies_project_config_override() -> None:
 
 
 def test_run_cycle_passes_project_pull_policy_overrides_into_runtime_context() -> None:
-    fixture_store = JsonStore("src/app_factory/fixtures")
+    fixture_store = JsonStore("src/devforge/fixtures")
     snapshot = fixture_store.load_snapshot("ecommerce_project")
     snapshot["projects"][0]["pull_policy_overrides"] = [
         {
@@ -114,7 +114,7 @@ def test_run_cycle_passes_project_pull_policy_overrides_into_runtime_context() -
 
 
 def test_run_cycle_works_with_store_loaded_snapshot() -> None:
-    fixture_store = JsonStore("src/app_factory/fixtures")
+    fixture_store = JsonStore("src/devforge/fixtures")
     snapshot = fixture_store.load_snapshot("ecommerce_project")
     result = run_cycle(snapshot)
     assert result["selected_work_packages"] == ["wp-cart-frontend"]
@@ -123,7 +123,7 @@ def test_run_cycle_works_with_store_loaded_snapshot() -> None:
 
 
 def test_run_cycle_persists_events_artifacts_and_memory_when_stores_are_injected(tmp_path) -> None:
-    fixture_store = JsonStore("src/app_factory/fixtures")
+    fixture_store = JsonStore("src/devforge/fixtures")
     snapshot = fixture_store.load_snapshot("game_project")
     event_store = JsonlEventStore(tmp_path / "events.jsonl")
     artifact_store = FileArtifactStore(tmp_path / "artifacts")
@@ -165,7 +165,7 @@ def test_run_cycle_persists_events_artifacts_and_memory_when_stores_are_injected
 
 
 def test_run_cycle_accepts_grouped_workspace_persistence(tmp_path) -> None:
-    fixture_store = JsonStore("src/app_factory/fixtures")
+    fixture_store = JsonStore("src/devforge/fixtures")
     snapshot = fixture_store.load_snapshot("game_project")
     persistence = WorkspacePersistence(
         event_store=JsonlEventStore(tmp_path / "events.jsonl"),
@@ -181,7 +181,7 @@ def test_run_cycle_accepts_grouped_workspace_persistence(tmp_path) -> None:
 
 
 def test_run_cycle_works_with_local_workspace_persistence_factory(tmp_path) -> None:
-    fixture_store = JsonStore("src/app_factory/fixtures")
+    fixture_store = JsonStore("src/devforge/fixtures")
     snapshot = fixture_store.load_snapshot("game_project")
     persistence = build_local_workspace_persistence(tmp_path / "runtime")
 

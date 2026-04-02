@@ -1,10 +1,10 @@
-from app_factory.context import ContextBroker
+from devforge.context import ContextBroker
 import json
 from pathlib import Path
 
 import pytest
 
-from app_factory.executors import (
+from devforge.executors import (
     PULL_POLICY_OVERRIDE_SCHEMA,
     ClaudeCodeAdapter,
     CodexAdapter,
@@ -12,9 +12,9 @@ from app_factory.executors import (
     normalize_pull_policy_overrides,
     resolve_pull_strategy,
 )
-from app_factory.executors.base import ClaudeCodeTaskRequest, CodexTaskRequest
-from app_factory.persistence import FileArtifactStore, JsonMemoryStore
-from app_factory.state import WorkPackage
+from devforge.executors.base import ClaudeCodeTaskRequest, CodexTaskRequest
+from devforge.persistence import FileArtifactStore, JsonMemoryStore
+from devforge.state import WorkPackage
 
 
 def test_claude_code_payload_uses_design_heavy_shape() -> None:
@@ -492,7 +492,7 @@ def test_normalize_pull_policy_overrides_validates_required_fields() -> None:
 
 def test_pull_policy_override_schema_and_example_fixture_are_consistent() -> None:
     assert PULL_POLICY_OVERRIDE_SCHEMA["required"] == ["executor", "mode"]
-    example_path = Path(__file__).resolve().parents[1] / "src" / "app_factory" / "fixtures" / "pull_policy_overrides.example.json"
+    example_path = Path(__file__).resolve().parents[1] / "src" / "devforge" / "fixtures" / "pull_policy_overrides.example.json"
     data = json.loads(example_path.read_text(encoding="utf-8"))
     rules = normalize_pull_policy_overrides(data["pull_policy_overrides"])
 

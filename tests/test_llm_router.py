@@ -1,7 +1,7 @@
-from app_factory.llm import build_task_llm_client
-from app_factory.planning.concept_decision import llm_concept_collection_decider
-from app_factory.planning.planning_decision import llm_planning_decider
-from app_factory.planning.retry_decision import llm_retry_decider
+from devforge.llm import build_task_llm_client
+from devforge.planning.concept_decision import llm_concept_collection_decider
+from devforge.planning.planning_decision import llm_planning_decider
+from devforge.planning.retry_decision import llm_retry_decider
 
 
 def test_build_task_llm_client_uses_project_preferences_for_offline_routing() -> None:

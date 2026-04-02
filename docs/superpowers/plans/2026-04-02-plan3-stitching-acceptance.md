@@ -14,13 +14,13 @@
 
 | File | Responsibility |
 |------|---------------|
-| Create: `src/app_factory/seams/verifier.py` | Compare implementation artifacts against frozen seam contracts |
-| Create: `src/app_factory/planning/acceptance.py` | LLM-driven product-level acceptance evaluation |
-| Create: `src/app_factory/planning/gap_analyzer.py` | Gap attribution to capability domains + remediation package generation |
-| Create: `src/app_factory/state/acceptance.py` | Acceptance verdict and gap data models |
-| Modify: `src/app_factory/graph/nodes.py` | Add acceptance_and_gap_check_node |
-| Modify: `src/app_factory/graph/runtime_state.py` | Add acceptance_verdict field |
-| Modify: `src/app_factory/llm/mock.py` | Add mock responses for acceptance and gap_analysis tasks |
+| Create: `src/devforge/seams/verifier.py` | Compare implementation artifacts against frozen seam contracts |
+| Create: `src/devforge/planning/acceptance.py` | LLM-driven product-level acceptance evaluation |
+| Create: `src/devforge/planning/gap_analyzer.py` | Gap attribution to capability domains + remediation package generation |
+| Create: `src/devforge/state/acceptance.py` | Acceptance verdict and gap data models |
+| Modify: `src/devforge/graph/nodes.py` | Add acceptance_and_gap_check_node |
+| Modify: `src/devforge/graph/runtime_state.py` | Add acceptance_verdict field |
+| Modify: `src/devforge/llm/mock.py` | Add mock responses for acceptance and gap_analysis tasks |
 | Create: `tests/test_seam_verifier.py` | Tests for seam contract verification |
 | Create: `tests/test_acceptance.py` | Tests for acceptance evaluation |
 | Create: `tests/test_gap_analyzer.py` | Tests for gap attribution and remediation |
@@ -31,8 +31,8 @@
 ### Task 1: Acceptance and Gap Data Models
 
 **Files:**
-- Create: `src/app_factory/state/acceptance.py`
-- Modify: `src/app_factory/state/__init__.py`
+- Create: `src/devforge/state/acceptance.py`
+- Modify: `src/devforge/state/__init__.py`
 - Test: `tests/test_acceptance_model.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -41,7 +41,7 @@
 # tests/test_acceptance_model.py
 """Tests for acceptance verdict and gap data models."""
 
-from app_factory.state.acceptance import (
+from devforge.state.acceptance import (
     AcceptanceVerdict,
     GoalCheckResult,
     GapItem,
@@ -107,13 +107,13 @@ def test_goal_check_statuses():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance_model.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance_model.py -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement acceptance data models**
 
 ```python
-# src/app_factory/state/acceptance.py
+# src/devforge/state/acceptance.py
 """Acceptance verdict and gap analysis data models."""
 
 from __future__ import annotations
@@ -187,13 +187,13 @@ Add exports for the new types.
 
 - [ ] **Step 5: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance_model.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance_model.py -v`
 Expected: All 4 tests PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app_factory/state/acceptance.py src/app_factory/state/__init__.py tests/test_acceptance_model.py
+git add src/devforge/state/acceptance.py src/devforge/state/__init__.py tests/test_acceptance_model.py
 git commit -m "feat: add acceptance verdict and gap analysis data models"
 ```
 
@@ -202,7 +202,7 @@ git commit -m "feat: add acceptance verdict and gap analysis data models"
 ### Task 2: Seam Contract Verifier
 
 **Files:**
-- Create: `src/app_factory/seams/verifier.py`
+- Create: `src/devforge/seams/verifier.py`
 - Test: `tests/test_seam_verifier.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -211,7 +211,7 @@ git commit -m "feat: add acceptance verdict and gap analysis data models"
 # tests/test_seam_verifier.py
 """Tests for seam contract verification."""
 
-from app_factory.seams.verifier import (
+from devforge.seams.verifier import (
     verify_seam_compliance,
     SeamComplianceResult,
     SeamViolation,
@@ -287,13 +287,13 @@ def test_multiple_criteria_partial_compliance():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_seam_verifier.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_seam_verifier.py -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement seam verifier**
 
 ```python
-# src/app_factory/seams/verifier.py
+# src/devforge/seams/verifier.py
 """Verify executor outputs against frozen seam contracts."""
 
 from __future__ import annotations
@@ -404,13 +404,13 @@ def verify_seam_compliance(
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_seam_verifier.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_seam_verifier.py -v`
 Expected: All 6 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/seams/verifier.py tests/test_seam_verifier.py
+git add src/devforge/seams/verifier.py tests/test_seam_verifier.py
 git commit -m "feat: add seam contract compliance verifier"
 ```
 
@@ -419,8 +419,8 @@ git commit -m "feat: add seam contract compliance verifier"
 ### Task 3: LLM-Driven Acceptance Evaluator
 
 **Files:**
-- Create: `src/app_factory/planning/acceptance.py`
-- Modify: `src/app_factory/llm/mock.py`
+- Create: `src/devforge/planning/acceptance.py`
+- Modify: `src/devforge/llm/mock.py`
 - Test: `tests/test_acceptance.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -429,9 +429,9 @@ git commit -m "feat: add seam contract compliance verifier"
 # tests/test_acceptance.py
 """Tests for LLM-driven product-level acceptance evaluation."""
 
-from app_factory.planning.acceptance import evaluate_acceptance
-from app_factory.state.acceptance import AcceptanceVerdict
-from app_factory.llm import MockLLMClient
+from devforge.planning.acceptance import evaluate_acceptance
+from devforge.state.acceptance import AcceptanceVerdict
+from devforge.llm import MockLLMClient
 
 
 def test_evaluate_acceptance_returns_verdict():
@@ -502,12 +502,12 @@ def test_evaluate_acceptance_closure_density():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance.py -v`
 Expected: FAIL
 
 - [ ] **Step 3: Add mock response for acceptance task**
 
-In `src/app_factory/llm/mock.py`, add handler for `request.task == "acceptance_evaluation"`:
+In `src/devforge/llm/mock.py`, add handler for `request.task == "acceptance_evaluation"`:
 
 ```python
         if request.task == "acceptance_evaluation":
@@ -578,7 +578,7 @@ Add method:
 - [ ] **Step 4: Implement acceptance evaluator**
 
 ```python
-# src/app_factory/planning/acceptance.py
+# src/devforge/planning/acceptance.py
 """LLM-driven product-level acceptance evaluation."""
 
 from __future__ import annotations
@@ -586,8 +586,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from app_factory.llm import LLMClient, MockLLMClient, StructuredGenerationRequest, build_task_llm_client
-from app_factory.state.acceptance import (
+from devforge.llm import LLMClient, MockLLMClient, StructuredGenerationRequest, build_task_llm_client
+from devforge.state.acceptance import (
     AcceptanceVerdict,
     ClosureDensityScore,
     GapItem,
@@ -674,13 +674,13 @@ def evaluate_acceptance(
 
 - [ ] **Step 5: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance.py -v`
 Expected: All 4 tests PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app_factory/planning/acceptance.py src/app_factory/llm/mock.py tests/test_acceptance.py
+git add src/devforge/planning/acceptance.py src/devforge/llm/mock.py tests/test_acceptance.py
 git commit -m "feat: add LLM-driven acceptance evaluator with role and closure assessment"
 ```
 
@@ -689,7 +689,7 @@ git commit -m "feat: add LLM-driven acceptance evaluator with role and closure a
 ### Task 4: Gap Analyzer
 
 **Files:**
-- Create: `src/app_factory/planning/gap_analyzer.py`
+- Create: `src/devforge/planning/gap_analyzer.py`
 - Test: `tests/test_gap_analyzer.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -698,12 +698,12 @@ git commit -m "feat: add LLM-driven acceptance evaluator with role and closure a
 # tests/test_gap_analyzer.py
 """Tests for gap attribution and remediation package generation."""
 
-from app_factory.planning.gap_analyzer import (
+from devforge.planning.gap_analyzer import (
     analyze_gaps,
     generate_remediations,
     attribute_gap_to_domain,
 )
-from app_factory.state.acceptance import GapItem, RemediationPackage
+from devforge.state.acceptance import GapItem, RemediationPackage
 
 
 def test_attribute_design_gap():
@@ -744,7 +744,7 @@ def test_generate_remediations():
 
 
 def test_analyze_gaps_from_verdict():
-    from app_factory.state.acceptance import AcceptanceVerdict, GoalCheckResult
+    from devforge.state.acceptance import AcceptanceVerdict, GoalCheckResult
     verdict = AcceptanceVerdict(
         verdict_id="V-1", project_id="P-1", cycle_id="c-1",
         is_production_ready=False, overall_score=0.5,
@@ -767,13 +767,13 @@ def test_analyze_gaps_from_verdict():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_gap_analyzer.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_gap_analyzer.py -v`
 Expected: FAIL
 
 - [ ] **Step 3: Implement gap analyzer**
 
 ```python
-# src/app_factory/planning/gap_analyzer.py
+# src/devforge/planning/gap_analyzer.py
 """Gap attribution and remediation package generation."""
 
 from __future__ import annotations
@@ -781,7 +781,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app_factory.state.acceptance import AcceptanceVerdict, GapItem, RemediationPackage
+from devforge.state.acceptance import AcceptanceVerdict, GapItem, RemediationPackage
 
 
 _TARGET_TO_DOMAIN: dict[str, tuple[str, str]] = {
@@ -879,13 +879,13 @@ def analyze_gaps(verdict: AcceptanceVerdict) -> GapAnalysisResult:
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_gap_analyzer.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_gap_analyzer.py -v`
 Expected: All 4 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/planning/gap_analyzer.py tests/test_gap_analyzer.py
+git add src/devforge/planning/gap_analyzer.py tests/test_gap_analyzer.py
 git commit -m "feat: add gap analyzer with domain attribution and remediation generation"
 ```
 
@@ -894,9 +894,9 @@ git commit -m "feat: add gap analyzer with domain attribution and remediation ge
 ### Task 5: Wire Acceptance Node into Graph
 
 **Files:**
-- Modify: `src/app_factory/graph/nodes.py`
-- Modify: `src/app_factory/graph/runtime_state.py`
-- Modify: `src/app_factory/planning/__init__.py`
+- Modify: `src/devforge/graph/nodes.py`
+- Modify: `src/devforge/graph/runtime_state.py`
+- Modify: `src/devforge/planning/__init__.py`
 - Test: `tests/test_acceptance_node.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -905,9 +905,9 @@ git commit -m "feat: add gap analyzer with domain attribution and remediation ge
 # tests/test_acceptance_node.py
 """Tests for acceptance_and_gap_check graph node."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import acceptance_and_gap_check_node
-from app_factory.llm import MockLLMClient
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import acceptance_and_gap_check_node
+from devforge.llm import MockLLMClient
 
 
 def test_acceptance_node_production_ready():
@@ -945,12 +945,12 @@ def test_acceptance_node_not_ready_triggers_gap_analysis():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance_node.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance_node.py -v`
 Expected: FAIL
 
 - [ ] **Step 3: Add acceptance_verdict field to RuntimeState**
 
-In `src/app_factory/graph/runtime_state.py`, add:
+In `src/devforge/graph/runtime_state.py`, add:
 
 ```python
     acceptance_verdict: dict[str, object] | None = None
@@ -958,11 +958,11 @@ In `src/app_factory/graph/runtime_state.py`, add:
 
 - [ ] **Step 4: Implement acceptance_and_gap_check_node**
 
-Append to `src/app_factory/graph/nodes.py`:
+Append to `src/devforge/graph/nodes.py`:
 
 ```python
-from app_factory.planning.acceptance import evaluate_acceptance
-from app_factory.planning.gap_analyzer import analyze_gaps
+from devforge.planning.acceptance import evaluate_acceptance
+from devforge.planning.gap_analyzer import analyze_gaps
 
 
 def acceptance_and_gap_check_node(
@@ -1032,18 +1032,18 @@ from .gap_analyzer import analyze_gaps, attribute_gap_to_domain, generate_remedi
 
 - [ ] **Step 6: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance_node.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance_node.py -v`
 Expected: All 2 tests PASS
 
 - [ ] **Step 7: Run full suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/app_factory/graph/nodes.py src/app_factory/graph/runtime_state.py src/app_factory/planning/__init__.py tests/test_acceptance_node.py
+git add src/devforge/graph/nodes.py src/devforge/graph/runtime_state.py src/devforge/planning/__init__.py tests/test_acceptance_node.py
 git commit -m "feat: wire acceptance_and_gap_check_node into graph with gap analysis"
 ```
 
@@ -1060,17 +1060,17 @@ git commit -m "feat: wire acceptance_and_gap_check_node into graph with gap anal
 # tests/test_acceptance_integration.py
 """Integration: results → seam check → acceptance → gap → remediation."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     product_design_node,
     design_validation_node,
     closure_expansion_node,
     acceptance_and_gap_check_node,
 )
-from app_factory.seams.verifier import verify_seam_compliance
-from app_factory.planning.gap_analyzer import analyze_gaps
-from app_factory.state.acceptance import AcceptanceVerdict, GapItem, GoalCheckResult
-from app_factory.llm import MockLLMClient
+from devforge.seams.verifier import verify_seam_compliance
+from devforge.planning.gap_analyzer import analyze_gaps
+from devforge.state.acceptance import AcceptanceVerdict, GapItem, GoalCheckResult
+from devforge.llm import MockLLMClient
 
 
 def test_full_acceptance_pass_pipeline():
@@ -1131,12 +1131,12 @@ def test_full_acceptance_fail_pipeline():
 
 - [ ] **Step 2: Run test**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_acceptance_integration.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_acceptance_integration.py -v`
 Expected: All 2 tests PASS
 
 - [ ] **Step 3: Run full suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 4: Commit**
@@ -1152,12 +1152,12 @@ git commit -m "feat: add integration tests for full acceptance pipeline (pass an
 
 - [ ] **Step 1: Run complete test suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest -v --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest -v --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 2: Verify new files**
 
-Run: `ls -la src/app_factory/state/acceptance.py src/app_factory/seams/verifier.py src/app_factory/planning/acceptance.py src/app_factory/planning/gap_analyzer.py`
+Run: `ls -la src/devforge/state/acceptance.py src/devforge/seams/verifier.py src/devforge/planning/acceptance.py src/devforge/planning/gap_analyzer.py`
 Expected: All 4 files exist
 
 - [ ] **Step 3: Final commit**

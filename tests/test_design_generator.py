@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app_factory.planning.design_generator import generate_product_design
+from devforge.planning.design_generator import generate_product_design
 
 
 _ECOMMERCE_PROJECT = {

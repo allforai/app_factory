@@ -1,11 +1,11 @@
 """Tests for Ring-based closure expansion with convergence control."""
 
-from app_factory.planning.closure_expander import (
+from devforge.planning.closure_expander import (
     expand_closures,
     ClosureExpansionResult,
     CLOSURE_DIMENSIONS,
 )
-from app_factory.state.design import ClosureItem
+from devforge.state.design import ClosureItem
 
 
 def test_ring_1_expansion_from_core_tasks():

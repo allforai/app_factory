@@ -863,10 +863,10 @@ The scheduler may replace the selected executor only when:
 Suggested initial Python package layout:
 
 ```text
-app_factory/
+devforge/
   PLAN.md
   src/
-    app_factory/
+    devforge/
       __init__.py
       state/
         workspace.py

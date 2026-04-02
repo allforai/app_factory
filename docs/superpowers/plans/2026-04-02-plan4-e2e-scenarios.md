@@ -74,7 +74,7 @@ def test_snapshot_has_executor_policies():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_e2e_ecommerce_fixture.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_e2e_ecommerce_fixture.py -v`
 
 - [ ] **Step 3: Implement snapshot factory**
 
@@ -243,7 +243,7 @@ def make_ecommerce_snapshot(
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_e2e_ecommerce_fixture.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_e2e_ecommerce_fixture.py -v`
 Expected: All 5 PASS
 
 - [ ] **Step 5: Commit**
@@ -458,7 +458,7 @@ def make_game_snapshot(
 
 - [ ] **Step 3: Run tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_e2e_game_fixture.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_e2e_game_fixture.py -v`
 Expected: All 5 PASS
 
 - [ ] **Step 4: Commit**
@@ -485,18 +485,18 @@ Validates: design back-loop, executor failure recovery, product acceptance back-
 multi-round convergence.
 """
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     concept_collection_node,
     product_design_node,
     design_validation_node,
     closure_expansion_node,
     acceptance_and_gap_check_node,
 )
-from app_factory.seams.verifier import verify_seam_compliance
-from app_factory.planning.graph_patch import apply_requirement_events
-from app_factory.state import RequirementEvent
-from app_factory.llm import MockLLMClient
+from devforge.seams.verifier import verify_seam_compliance
+from devforge.planning.graph_patch import apply_requirement_events
+from devforge.state import RequirementEvent
+from devforge.llm import MockLLMClient
 from tests.fixtures.e2e_ecommerce_snapshot import make_ecommerce_snapshot
 
 
@@ -642,7 +642,7 @@ def test_s1_seam_broken_detected():
 
 - [ ] **Step 2: Run**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_e2e_ecommerce.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_e2e_ecommerce.py -v`
 Expected: All 4 PASS
 
 - [ ] **Step 3: Commit**
@@ -669,19 +669,19 @@ Validates: project split, seam freeze/break, parallel execution,
 requirement change, multi-round convergence.
 """
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     concept_collection_node,
     product_design_node,
     design_validation_node,
     closure_expansion_node,
     acceptance_and_gap_check_node,
 )
-from app_factory.seams.verifier import verify_seam_compliance
-from app_factory.planning.graph_patch import apply_requirement_events, apply_project_split
-from app_factory.scheduler import select_workset
-from app_factory.state import RequirementEvent, SeamState, WorkPackage, decode_snapshot
-from app_factory.llm import MockLLMClient
+from devforge.seams.verifier import verify_seam_compliance
+from devforge.planning.graph_patch import apply_requirement_events, apply_project_split
+from devforge.scheduler import select_workset
+from devforge.state import RequirementEvent, SeamState, WorkPackage, decode_snapshot
+from devforge.llm import MockLLMClient
 from tests.fixtures.e2e_game_snapshot import make_game_snapshot
 
 
@@ -800,7 +800,7 @@ def test_s2_full_pipeline_convergence():
 
 - [ ] **Step 2: Run**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_e2e_game.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_e2e_game.py -v`
 Expected: All 4 PASS
 
 - [ ] **Step 3: Commit**
@@ -823,15 +823,15 @@ git commit -m "feat: add S2 game end-to-end scenario tests"
 # tests/test_e2e_orchestration.py
 """Cross-scenario orchestration tests: convergence, state consistency, coverage matrix."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     product_design_node,
     design_validation_node,
     closure_expansion_node,
     acceptance_and_gap_check_node,
 )
-from app_factory.seams.verifier import verify_seam_compliance
-from app_factory.llm import MockLLMClient
+from devforge.seams.verifier import verify_seam_compliance
+from devforge.llm import MockLLMClient
 
 
 def test_convergence_acceptance_pass_terminates():
@@ -932,12 +932,12 @@ def test_scenario_coverage_matrix():
 
 - [ ] **Step 2: Run**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_e2e_orchestration.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_e2e_orchestration.py -v`
 Expected: All 5 PASS
 
 - [ ] **Step 3: Run full suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 4: Commit**
@@ -953,12 +953,12 @@ git commit -m "feat: add cross-scenario orchestration tests for convergence and 
 
 - [ ] **Step 1: Run complete test suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest -v --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest -v --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 2: Count total tests**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --co -q | tail -1`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --co -q | tail -1`
 
 - [ ] **Step 3: Final commit**
 

@@ -1,4 +1,4 @@
-from app_factory.planning import build_retry_guardrail, decide_retry_action, llm_retry_decider
+from devforge.planning import build_retry_guardrail, decide_retry_action, llm_retry_decider
 
 
 def test_retry_guardrail_forbids_executor_switch_after_requirement_patch() -> None:

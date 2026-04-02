@@ -1,10 +1,10 @@
 """Tests for tools module — unit tests (no real API calls)."""
 
-from app_factory.tools.brave_search import BraveSearchClient, SearchResult
-from app_factory.tools.fal_image import FalImageClient, FalImageResult
-from app_factory.tools.image_gen import ImageGenClient, ImageResult
-from app_factory.tools.stitch_ui import StitchClient, StitchProject, StitchScreen
-from app_factory.tools.xv_validator import XVValidator, XVResult, _DEFAULT_XV_ROUTES
+from devforge.tools.brave_search import BraveSearchClient, SearchResult
+from devforge.tools.fal_image import FalImageClient, FalImageResult
+from devforge.tools.image_gen import ImageGenClient, ImageResult
+from devforge.tools.stitch_ui import StitchClient, StitchProject, StitchScreen
+from devforge.tools.xv_validator import XVValidator, XVResult, _DEFAULT_XV_ROUTES
 
 
 def test_brave_search_no_key_returns_empty():

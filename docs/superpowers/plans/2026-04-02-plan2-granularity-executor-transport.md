@@ -14,12 +14,12 @@
 
 | File | Responsibility |
 |------|---------------|
-| Create: `src/app_factory/executors/capabilities.py` | Executor capability metadata — context window, max package size, granularity preferences |
-| Create: `src/app_factory/executors/granularity.py` | Pre-dispatch granularity validation — split oversized packages, merge undersized for large-context executors |
-| Create: `src/app_factory/executors/subprocess_transport.py` | Real subprocess transport for claude_code and codex CLI |
-| Modify: `src/app_factory/executors/adapters.py` | Wire capabilities and transport into adapters |
-| Modify: `src/app_factory/context/broker.py` | Add permission isolation (status-aware access control) and previous-attempt injection |
-| Modify: `src/app_factory/graph/builder.py` | Wire granularity check before dispatch, inject retry context into push |
+| Create: `src/devforge/executors/capabilities.py` | Executor capability metadata — context window, max package size, granularity preferences |
+| Create: `src/devforge/executors/granularity.py` | Pre-dispatch granularity validation — split oversized packages, merge undersized for large-context executors |
+| Create: `src/devforge/executors/subprocess_transport.py` | Real subprocess transport for claude_code and codex CLI |
+| Modify: `src/devforge/executors/adapters.py` | Wire capabilities and transport into adapters |
+| Modify: `src/devforge/context/broker.py` | Add permission isolation (status-aware access control) and previous-attempt injection |
+| Modify: `src/devforge/graph/builder.py` | Wire granularity check before dispatch, inject retry context into push |
 | Create: `tests/test_executor_capabilities.py` | Tests for capability model |
 | Create: `tests/test_granularity.py` | Tests for granularity validation and split/merge |
 | Create: `tests/test_context_permissions.py` | Tests for permission isolation |
@@ -30,7 +30,7 @@
 ### Task 1: Executor Capability Model
 
 **Files:**
-- Create: `src/app_factory/executors/capabilities.py`
+- Create: `src/devforge/executors/capabilities.py`
 - Test: `tests/test_executor_capabilities.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -39,7 +39,7 @@
 # tests/test_executor_capabilities.py
 """Tests for executor capability metadata."""
 
-from app_factory.executors.capabilities import (
+from devforge.executors.capabilities import (
     ExecutorCapability,
     get_executor_capability,
     EXECUTOR_CAPABILITIES,
@@ -83,13 +83,13 @@ def test_all_registered_executors_have_capabilities():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_executor_capabilities.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_executor_capabilities.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement capability model**
 
 ```python
-# src/app_factory/executors/capabilities.py
+# src/devforge/executors/capabilities.py
 """Executor capability metadata for granularity control."""
 
 from __future__ import annotations
@@ -171,13 +171,13 @@ def get_executor_capability(executor_name: str) -> ExecutorCapability:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_executor_capabilities.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_executor_capabilities.py -v`
 Expected: All 5 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/executors/capabilities.py tests/test_executor_capabilities.py
+git add src/devforge/executors/capabilities.py tests/test_executor_capabilities.py
 git commit -m "feat: add executor capability model for granularity control"
 ```
 
@@ -186,7 +186,7 @@ git commit -m "feat: add executor capability model for granularity control"
 ### Task 2: Granularity Validator and Split/Merge
 
 **Files:**
-- Create: `src/app_factory/executors/granularity.py`
+- Create: `src/devforge/executors/granularity.py`
 - Test: `tests/test_granularity.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -195,14 +195,14 @@ git commit -m "feat: add executor capability model for granularity control"
 # tests/test_granularity.py
 """Tests for pre-dispatch granularity validation and split/merge."""
 
-from app_factory.executors.granularity import (
+from devforge.executors.granularity import (
     estimate_package_tokens,
     validate_granularity,
     GranularityAction,
     suggest_split,
     suggest_merge,
 )
-from app_factory.state import WorkPackage
+from devforge.state import WorkPackage
 
 
 def _make_wp(
@@ -307,13 +307,13 @@ def test_executor_switch_triggers_regranularity():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_granularity.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_granularity.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement granularity module**
 
 ```python
-# src/app_factory/executors/granularity.py
+# src/devforge/executors/granularity.py
 """Pre-dispatch granularity validation — split oversized, merge undersized."""
 
 from __future__ import annotations
@@ -321,8 +321,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app_factory.executors.capabilities import get_executor_capability
-from app_factory.state import WorkPackage
+from devforge.executors.capabilities import get_executor_capability
+from devforge.state import WorkPackage
 
 
 @dataclass(slots=True)
@@ -462,13 +462,13 @@ def _chunk_list(items: list[str], n: int) -> list[list[str]]:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_granularity.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_granularity.py -v`
 Expected: All 8 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/executors/granularity.py tests/test_granularity.py
+git add src/devforge/executors/granularity.py tests/test_granularity.py
 git commit -m "feat: add granularity validation with split/merge suggestions"
 ```
 
@@ -477,7 +477,7 @@ git commit -m "feat: add granularity validation with split/merge suggestions"
 ### Task 3: Push Context — Previous Attempt Injection
 
 **Files:**
-- Modify: `src/app_factory/graph/builder.py` (the `_build_node_packet` and `_build_context_pull_manifest` functions)
+- Modify: `src/devforge/graph/builder.py` (the `_build_node_packet` and `_build_context_pull_manifest` functions)
 - Test: `tests/test_push_retry_context.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -486,9 +486,9 @@ git commit -m "feat: add granularity validation with split/merge suggestions"
 # tests/test_push_retry_context.py
 """Tests for retry context injection into push packets."""
 
-from app_factory.graph.builder import _build_node_packet, _build_context_pull_manifest
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.state import WorkPackage
+from devforge.graph.builder import _build_node_packet, _build_context_pull_manifest
+from devforge.graph.runtime_state import RuntimeState
+from devforge.state import WorkPackage
 
 
 def _make_wp(attempt_count: int = 0, findings: list | None = None, handoff_notes: list | None = None) -> WorkPackage:
@@ -516,7 +516,7 @@ def test_first_attempt_no_retry_context():
 
 
 def test_retry_attempt_includes_previous_findings():
-    from app_factory.state.common import Finding
+    from devforge.state.common import Finding
     wp = _make_wp(
         attempt_count=2,
         findings=[Finding(id="F1", summary="timeout on API call", severity="high", source="codex")],
@@ -534,12 +534,12 @@ def test_retry_attempt_includes_previous_findings():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_push_retry_context.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_push_retry_context.py -v`
 Expected: FAIL (previous_attempts not in packet)
 
 - [ ] **Step 3: Modify _build_node_packet in builder.py**
 
-Read `src/app_factory/graph/builder.py` and find the `_build_node_packet` function (around line 103). After building the packet, add retry context:
+Read `src/devforge/graph/builder.py` and find the `_build_node_packet` function (around line 103). After building the packet, add retry context:
 
 ```python
 def _build_node_packet(runtime: RuntimeState, selected: list[WorkPackage]) -> dict[str, object]:
@@ -572,18 +572,18 @@ def _build_node_packet(runtime: RuntimeState, selected: list[WorkPackage]) -> di
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_push_retry_context.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_push_retry_context.py -v`
 Expected: All 2 tests PASS
 
 - [ ] **Step 5: Run full suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app_factory/graph/builder.py tests/test_push_retry_context.py
+git add src/devforge/graph/builder.py tests/test_push_retry_context.py
 git commit -m "feat: inject previous attempt findings into push context on retry"
 ```
 
@@ -592,7 +592,7 @@ git commit -m "feat: inject previous attempt findings into push context on retry
 ### Task 4: Pull Context — Permission Isolation
 
 **Files:**
-- Modify: `src/app_factory/context/broker.py`
+- Modify: `src/devforge/context/broker.py`
 - Test: `tests/test_context_permissions.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -601,7 +601,7 @@ git commit -m "feat: inject previous attempt findings into push context on retry
 # tests/test_context_permissions.py
 """Tests for status-aware permission isolation in context broker."""
 
-from app_factory.context.broker import ContextBroker
+from devforge.context.broker import ContextBroker
 
 
 def _make_snapshot_with_work_packages():
@@ -662,12 +662,12 @@ def test_completed_status_is_readable():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_context_permissions.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_context_permissions.py -v`
 Expected: FAIL
 
 - [ ] **Step 3: Add workpackage:// resolution with permission check to broker.py**
 
-Read `src/app_factory/context/broker.py`. Add a new resolution method and update `resolve_ref` to handle `workpackage://` prefix with `requester_wp_id` parameter:
+Read `src/devforge/context/broker.py`. Add a new resolution method and update `resolve_ref` to handle `workpackage://` prefix with `requester_wp_id` parameter:
 
 In `resolve_ref`, add the `requester_wp_id` optional parameter and handle `workpackage://`:
 
@@ -726,18 +726,18 @@ def _resolve_workpackage(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_context_permissions.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_context_permissions.py -v`
 Expected: All 4 tests PASS
 
 - [ ] **Step 5: Run full suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app_factory/context/broker.py tests/test_context_permissions.py
+git add src/devforge/context/broker.py tests/test_context_permissions.py
 git commit -m "feat: add workpackage:// resolution with status-aware permission isolation"
 ```
 
@@ -746,7 +746,7 @@ git commit -m "feat: add workpackage:// resolution with status-aware permission 
 ### Task 5: Subprocess Transport
 
 **Files:**
-- Create: `src/app_factory/executors/subprocess_transport.py`
+- Create: `src/devforge/executors/subprocess_transport.py`
 - Test: `tests/test_subprocess_transport.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -758,7 +758,7 @@ git commit -m "feat: add workpackage:// resolution with status-aware permission 
 import json
 from unittest.mock import patch, MagicMock
 
-from app_factory.executors.subprocess_transport import (
+from devforge.executors.subprocess_transport import (
     SubprocessTransport,
     SubprocessResult,
     build_claude_code_command,
@@ -858,13 +858,13 @@ def test_subprocess_transport_timeout():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_subprocess_transport.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_subprocess_transport.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement subprocess transport**
 
 ```python
-# src/app_factory/executors/subprocess_transport.py
+# src/devforge/executors/subprocess_transport.py
 """Real subprocess transport for CLI-based executors (claude_code, codex)."""
 
 from __future__ import annotations
@@ -991,13 +991,13 @@ def build_codex_command(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_subprocess_transport.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_subprocess_transport.py -v`
 Expected: All 8 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/executors/subprocess_transport.py tests/test_subprocess_transport.py
+git add src/devforge/executors/subprocess_transport.py tests/test_subprocess_transport.py
 git commit -m "feat: add subprocess transport for claude_code and codex CLI execution"
 ```
 
@@ -1006,8 +1006,8 @@ git commit -m "feat: add subprocess transport for claude_code and codex CLI exec
 ### Task 6: Wire Granularity into Dispatch Pipeline
 
 **Files:**
-- Modify: `src/app_factory/graph/builder.py`
-- Modify: `src/app_factory/executors/__init__.py`
+- Modify: `src/devforge/graph/builder.py`
+- Modify: `src/devforge/executors/__init__.py`
 - Test: `tests/test_granularity_integration.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -1016,8 +1016,8 @@ git commit -m "feat: add subprocess transport for claude_code and codex CLI exec
 # tests/test_granularity_integration.py
 """Integration test: granularity check before dispatch."""
 
-from app_factory.executors.granularity import validate_granularity
-from app_factory.state import WorkPackage
+from devforge.executors.granularity import validate_granularity
+from devforge.state import WorkPackage
 
 
 def test_oversized_package_detected_before_dispatch():
@@ -1056,12 +1056,12 @@ def test_normal_package_passes_granularity():
 
 - [ ] **Step 2: Run to verify tests pass (these use existing functions)**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest tests/test_granularity_integration.py -v`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest tests/test_granularity_integration.py -v`
 Expected: All 2 tests PASS
 
 - [ ] **Step 3: Update executors/__init__.py exports**
 
-Add to `src/app_factory/executors/__init__.py`:
+Add to `src/devforge/executors/__init__.py`:
 
 ```python
 from .capabilities import ExecutorCapability, get_executor_capability, EXECUTOR_CAPABILITIES
@@ -1071,13 +1071,13 @@ from .subprocess_transport import SubprocessTransport, SubprocessResult, build_c
 
 - [ ] **Step 4: Run full suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app_factory/executors/__init__.py tests/test_granularity_integration.py
+git add src/devforge/executors/__init__.py tests/test_granularity_integration.py
 git commit -m "feat: wire granularity validation and subprocess transport into executor exports"
 ```
 
@@ -1087,12 +1087,12 @@ git commit -m "feat: wire granularity validation and subprocess transport into e
 
 - [ ] **Step 1: Run complete test suite**
 
-Run: `cd /Users/aa/workspace/app_factory && uv run python -m pytest -v --tb=short`
+Run: `cd /Users/aa/workspace/devforge && uv run python -m pytest -v --tb=short`
 Expected: All tests PASS
 
 - [ ] **Step 2: Verify new files exist**
 
-Run: `ls -la src/app_factory/executors/capabilities.py src/app_factory/executors/granularity.py src/app_factory/executors/subprocess_transport.py`
+Run: `ls -la src/devforge/executors/capabilities.py src/devforge/executors/granularity.py src/devforge/executors/subprocess_transport.py`
 Expected: All 3 files exist
 
 - [ ] **Step 3: Final commit**

@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from app_factory.state.acceptance import (
+from devforge.state.acceptance import (
     AcceptanceVerdict,
     GapItem,
     GoalCheckResult,
     RemediationPackage,
 )
-from app_factory.planning.gap_analyzer import (
+from devforge.planning.gap_analyzer import (
     GapAnalysisResult,
     analyze_gaps,
     attribute_gap_to_domain,

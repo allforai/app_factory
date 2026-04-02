@@ -1,7 +1,7 @@
 # tests/test_granularity_integration.py
 """Integration test: granularity check before dispatch."""
-from app_factory.executors.granularity import validate_granularity
-from app_factory.state import WorkPackage
+from devforge.executors.granularity import validate_granularity
+from devforge.state import WorkPackage
 
 def test_oversized_package_detected_before_dispatch():
     wp = WorkPackage(work_package_id="WP-huge", initiative_id="I-1", project_id="P-1", phase="implementation", domain="backend", role_id="software_engineer", title="Huge package", goal="x " * 10000, status="ready", acceptance_criteria=["c" * 200 for _ in range(50)])

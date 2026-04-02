@@ -18,7 +18,7 @@ skip_no_gemini = pytest.mark.skipif(
 
 @skip_no_brave
 def test_live_brave_search():
-    from app_factory.tools.brave_search import BraveSearchClient
+    from devforge.tools.brave_search import BraveSearchClient
 
     client = BraveSearchClient()
     results = client.search("二手交易平台 竞品分析", count=5)
@@ -30,7 +30,7 @@ def test_live_brave_search():
 
 @skip_no_brave
 def test_live_brave_research_topic():
-    from app_factory.tools.brave_search import BraveSearchClient
+    from devforge.tools.brave_search import BraveSearchClient
 
     client = BraveSearchClient()
     results = client.research_topic("roguelike game design", count_per_query=3)
@@ -40,7 +40,7 @@ def test_live_brave_research_topic():
 
 @skip_no_openrouter
 def test_live_xv_single_domain():
-    from app_factory.tools.xv_validator import XVValidator
+    from devforge.tools.xv_validator import XVValidator
 
     validator = XVValidator()
     result = validator.validate(

@@ -4,15 +4,15 @@ These test the tool integration layer. Tools that need API keys
 gracefully degrade — the base node logic still runs.
 """
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.tool_enhanced_nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.tool_enhanced_nodes import (
     concept_collection_with_research,
     design_validation_with_xv,
     product_design_with_tools,
     acceptance_with_tools,
     seam_verification_with_tools,
 )
-from app_factory.llm import MockLLMClient
+from devforge.llm import MockLLMClient
 
 
 def test_concept_with_research_runs():
@@ -51,7 +51,7 @@ def test_design_validation_with_xv_valid_design():
     llm = MockLLMClient()
     project = {"project_id": "P-1", "initiative_id": "I-1", "name": "Test", "project_archetype": "ecommerce", "current_phase": "analysis_design"}
     state = RuntimeState(workspace_id="W-1", active_project_id="P-1")
-    from app_factory.graph.nodes import product_design_node
+    from devforge.graph.nodes import product_design_node
     state = product_design_node(state, project=project, llm_client=llm)
     state = design_validation_with_xv(state)
     # XV findings recorded regardless of pass/fail

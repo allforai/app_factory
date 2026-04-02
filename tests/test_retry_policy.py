@@ -1,4 +1,4 @@
-from app_factory.planning import resolve_retry_action
+from devforge.planning import resolve_retry_action
 
 
 def test_retry_policy_returns_final_fail_when_attempt_limit_reached() -> None:

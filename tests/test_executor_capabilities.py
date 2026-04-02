@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from app_factory.executors.capabilities import (
+from devforge.executors.capabilities import (
     EXECUTOR_CAPABILITIES,
     ExecutorCapability,
     get_executor_capability,

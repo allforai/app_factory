@@ -1,4 +1,4 @@
-from app_factory.planning.planning_decision import llm_planning_decider
+from devforge.planning.planning_decision import llm_planning_decider
 
 
 def test_llm_planning_decider_returns_structured_planning_decision() -> None:

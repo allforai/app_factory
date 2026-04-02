@@ -3,7 +3,7 @@
 import textwrap
 from pathlib import Path
 
-from app_factory.llm.config_loader import load_llm_config, _parse_yaml_simple
+from devforge.llm.config_loader import load_llm_config, _parse_yaml_simple
 
 
 def test_load_from_file(tmp_path: Path):

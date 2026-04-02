@@ -1,6 +1,6 @@
 # tests/test_granularity.py
-from app_factory.executors.granularity import estimate_package_tokens, validate_granularity, GranularityAction, suggest_split, suggest_merge
-from app_factory.state import WorkPackage
+from devforge.executors.granularity import estimate_package_tokens, validate_granularity, GranularityAction, suggest_split, suggest_merge
+from devforge.state import WorkPackage
 
 
 def _make_wp(wp_id="WP-1", goal="implement feature", acceptance_criteria=None, constraints=None, deliverables=None):

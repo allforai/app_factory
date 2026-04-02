@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
 
-from app_factory.executors import EXECUTOR_REGISTRY, get_executor_adapter
-from app_factory.graph import RuntimeState, concept_collection_node, graph_validation_node, planning_and_shaping_node, project_scheduler_node
-from app_factory.planning import apply_patch_operations
-from app_factory.roles import ROLE_REGISTRY, get_role_spec
-from app_factory.scheduler import select_workset
-from app_factory.state import ExecutorPolicy, SeamState, WorkPackage
+from devforge.executors import EXECUTOR_REGISTRY, get_executor_adapter
+from devforge.graph import RuntimeState, concept_collection_node, graph_validation_node, planning_and_shaping_node, project_scheduler_node
+from devforge.planning import apply_patch_operations
+from devforge.roles import ROLE_REGISTRY, get_role_spec
+from devforge.scheduler import select_workset
+from devforge.state import ExecutorPolicy, SeamState, WorkPackage
 
 
 def test_executor_policy_resolution_order() -> None:
@@ -40,7 +40,7 @@ def test_executor_registry_contains_core_adapters() -> None:
 
 
 def test_fixture_files_are_valid_json() -> None:
-    fixture_dir = Path(__file__).resolve().parents[1] / "src" / "app_factory" / "fixtures"
+    fixture_dir = Path(__file__).resolve().parents[1] / "src" / "devforge" / "fixtures"
     for name in ("game_project.json", "ecommerce_project.json"):
         data = json.loads((fixture_dir / name).read_text(encoding="utf-8"))
         assert "initiative" in data

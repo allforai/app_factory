@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import pytest
-from app_factory.llm import MockLLMClient
-from app_factory.planning.acceptance import evaluate_acceptance
-from app_factory.state.acceptance import AcceptanceVerdict
+from devforge.llm import MockLLMClient
+from devforge.planning.acceptance import evaluate_acceptance
+from devforge.state.acceptance import AcceptanceVerdict
 
 
 # ---------------------------------------------------------------------------

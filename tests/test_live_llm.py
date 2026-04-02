@@ -10,15 +10,15 @@ import os
 
 import pytest
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     concept_collection_node,
     product_design_node,
     design_validation_node,
     closure_expansion_node,
     acceptance_and_gap_check_node,
 )
-from app_factory.llm.factory import build_llm_client
+from devforge.llm.factory import build_llm_client
 
 GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 skip_no_key = pytest.mark.skipif(not GEMINI_KEY, reason="GEMINI_API_KEY not set")

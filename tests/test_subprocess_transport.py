@@ -1,5 +1,5 @@
 from unittest.mock import patch, MagicMock
-from app_factory.executors.subprocess_transport import SubprocessTransport, SubprocessResult, build_claude_code_command, build_codex_command
+from devforge.executors.subprocess_transport import SubprocessTransport, SubprocessResult, build_claude_code_command, build_codex_command
 
 def test_build_claude_code_command():
     cmd = build_claude_code_command(prompt="implement auth", working_dir="/tmp/project")

@@ -1,6 +1,6 @@
-# App Factory
+# DevForge
 
-`app_factory` 是一个面向软件研发流程的 orchestration kernel。它把概念收集、规划、知识特化、执行器调度、重试、需求 patch、项目拆分、seam 治理和持久化放到同一个运行时里。
+`devforge` 是一个面向软件研发流程的 orchestration kernel。它把概念收集、规划、知识特化、执行器调度、重试、需求 patch、项目拆分、seam 治理和持久化放到同一个运行时里。
 
 当前仓库已经具备一条最小可运行主线：
 
@@ -17,7 +17,7 @@
 - Python `3.12`
 - `uv`
 
-项目当前基线见 [pyproject.toml](/Users/aa/workspace/app_factory/pyproject.toml)。
+项目当前基线见 [pyproject.toml](/Users/aa/workspace/devforge/pyproject.toml)。
 
 ## Quick Start
 
@@ -37,8 +37,8 @@ devforge fixture ecommerce_project --json
 也可以不用 console script，直接走模块入口：
 
 ```bash
-python -m app_factory.main fixture game_project
-python -m app_factory.main fixture ecommerce_project --json
+python -m devforge.main fixture game_project
+python -m devforge.main fixture ecommerce_project --json
 ```
 
 ## Run Your Own Snapshot
@@ -69,11 +69,11 @@ devforge snapshot ./my_snapshot.json --persistence-root ./.runtime --json
 
 ## Built-in Fixtures
 
-内置示例在 [fixtures](/Users/aa/workspace/app_factory/src/app_factory/fixtures)：
+内置示例在 [fixtures](/Users/aa/workspace/devforge/src/devforge/fixtures)：
 
-- [game_project.json](/Users/aa/workspace/app_factory/src/app_factory/fixtures/game_project.json)
-- [ecommerce_project.json](/Users/aa/workspace/app_factory/src/app_factory/fixtures/ecommerce_project.json)
-- [ecommerce_project.project_config.json](/Users/aa/workspace/app_factory/src/app_factory/fixtures/ecommerce_project.project_config.json)
+- [game_project.json](/Users/aa/workspace/devforge/src/devforge/fixtures/game_project.json)
+- [ecommerce_project.json](/Users/aa/workspace/devforge/src/devforge/fixtures/ecommerce_project.json)
+- [ecommerce_project.project_config.json](/Users/aa/workspace/devforge/src/devforge/fixtures/ecommerce_project.project_config.json)
 
 fixture 运行时，如果旁边存在同名 `*.project_config.json`，会自动加载。
 
@@ -101,8 +101,8 @@ fixture 运行时，如果旁边存在同名 `*.project_config.json`，会自动
 
 例子见：
 
-- [project-config.md](/Users/aa/workspace/app_factory/docs/project-config.md)
-- [ecommerce_project.project_config.json](/Users/aa/workspace/app_factory/src/app_factory/fixtures/ecommerce_project.project_config.json)
+- [project-config.md](/Users/aa/workspace/devforge/docs/project-config.md)
+- [ecommerce_project.project_config.json](/Users/aa/workspace/devforge/src/devforge/fixtures/ecommerce_project.project_config.json)
 
 ## CLI Output
 
@@ -124,29 +124,29 @@ fixture 运行时，如果旁边存在同名 `*.project_config.json`，会自动
 
 最值得先看的目录：
 
-- [src/app_factory/main.py](/Users/aa/workspace/app_factory/src/app_factory/main.py)
+- [src/devforge/main.py](/Users/aa/workspace/devforge/src/devforge/main.py)
   CLI 和运行入口
-- [src/app_factory/graph](/Users/aa/workspace/app_factory/src/app_factory/graph)
+- [src/devforge/graph](/Users/aa/workspace/devforge/src/devforge/graph)
   orchestration graph 和 runtime
-- [src/app_factory/llm](/Users/aa/workspace/app_factory/src/app_factory/llm)
+- [src/devforge/llm](/Users/aa/workspace/devforge/src/devforge/llm)
   LLM provider / transport / routing
-- [src/app_factory/executors](/Users/aa/workspace/app_factory/src/app_factory/executors)
+- [src/devforge/executors](/Users/aa/workspace/devforge/src/devforge/executors)
   executor adapter、payload、pull policy
-- [src/app_factory/knowledge](/Users/aa/workspace/app_factory/src/app_factory/knowledge)
+- [src/devforge/knowledge](/Users/aa/workspace/devforge/src/devforge/knowledge)
   本地知识库、选择、特化、节点知识包
-- [src/app_factory/persistence](/Users/aa/workspace/app_factory/src/app_factory/persistence)
+- [src/devforge/persistence](/Users/aa/workspace/devforge/src/devforge/persistence)
   snapshot / event / artifact / memory store
 
 ## Docs
 
-- [docs/cli.md](/Users/aa/workspace/app_factory/docs/cli.md)
-- [docs/project-config.md](/Users/aa/workspace/app_factory/docs/project-config.md)
-- [PLAN.md](/Users/aa/workspace/app_factory/PLAN.md)
+- [docs/cli.md](/Users/aa/workspace/devforge/docs/cli.md)
+- [docs/project-config.md](/Users/aa/workspace/devforge/docs/project-config.md)
+- [PLAN.md](/Users/aa/workspace/devforge/PLAN.md)
 
 ## Test
 
 ```bash
-UV_CACHE_DIR=/Users/aa/workspace/app_factory/.uv-cache uv run --with pytest pytest -q
+UV_CACHE_DIR=/Users/aa/workspace/devforge/.uv-cache uv run --with pytest pytest -q
 ```
 
 最近一次结果：`98 passed`

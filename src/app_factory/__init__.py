@@ -1,2 +1,0 @@
-"""App Factory orchestration kernel."""
-

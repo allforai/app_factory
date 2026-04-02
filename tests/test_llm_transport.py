@@ -1,4 +1,4 @@
-from app_factory.llm import HttpxTransport, TransportRequest, build_llm_client_from_config, google_config, openrouter_config
+from devforge.llm import HttpxTransport, TransportRequest, build_llm_client_from_config, google_config, openrouter_config
 
 
 def test_httpx_transport_uses_client_factory() -> None:

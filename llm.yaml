@@ -1,4 +1,4 @@
-# App Factory 配置文件
+# DevForge 配置文件
 # Keys 从 .env 加载，不要在这里写密钥
 #
 # provider: google | openrouter | mock

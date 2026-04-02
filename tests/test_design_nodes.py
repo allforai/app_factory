@@ -1,8 +1,8 @@
 """Tests for design-related graph nodes."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import product_design_node, design_validation_node, closure_expansion_node
-from app_factory.llm import MockLLMClient
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import product_design_node, design_validation_node, closure_expansion_node
+from devforge.llm import MockLLMClient
 
 
 def test_product_design_node_attaches_design():

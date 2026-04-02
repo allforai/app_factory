@@ -1,5 +1,5 @@
-from app_factory.llm import GoogleGenAIClient, StructuredGenerationRequest, build_llm_client
-from app_factory.llm.http import TransportRequest, TransportResponse
+from devforge.llm import GoogleGenAIClient, StructuredGenerationRequest, build_llm_client
+from devforge.llm.http import TransportRequest, TransportResponse
 
 
 def test_google_client_builds_generate_content_payload() -> None:

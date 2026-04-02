@@ -1,5 +1,5 @@
 [project]
-name = "app-factory"
+name = "devforge"
 version = "0.1.0"
 description = "Role-driven multi-project development orchestration kernel."
 readme = "README.md"
@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-devforge = "app_factory.main:main"
+devforge = "devforge.main:main"
 
 [project.optional-dependencies]
 dev = [

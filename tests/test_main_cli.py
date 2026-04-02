@@ -1,6 +1,6 @@
 import json
 
-from app_factory.main import main, run_snapshot_cycle
+from devforge.main import main, run_snapshot_cycle
 
 
 def test_main_fixture_command_prints_summary(capsys) -> None:

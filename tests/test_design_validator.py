@@ -1,7 +1,7 @@
 """Tests for product design structural validation."""
 
-from app_factory.state.design import DomainSpec, ProductDesign, UserFlow
-from app_factory.planning.design_validator import validate_design, ValidationResult
+from devforge.state.design import DomainSpec, ProductDesign, UserFlow
+from devforge.planning.design_validator import validate_design, ValidationResult
 
 
 def _make_design(**overrides) -> ProductDesign:

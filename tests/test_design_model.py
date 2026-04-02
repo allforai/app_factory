@@ -1,6 +1,6 @@
 """Tests for product design data model."""
 
-from app_factory.state.design import (
+from devforge.state.design import (
     ClosureItem,
     ClosureType,
     DomainSpec,

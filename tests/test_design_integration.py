@@ -1,13 +1,13 @@
 """Integration test: concept → design → validate → expand → verify coverage."""
 
-from app_factory.graph.runtime_state import RuntimeState
-from app_factory.graph.nodes import (
+from devforge.graph.runtime_state import RuntimeState
+from devforge.graph.nodes import (
     concept_collection_node,
     product_design_node,
     design_validation_node,
     closure_expansion_node,
 )
-from app_factory.llm import MockLLMClient
+from devforge.llm import MockLLMClient
 
 
 def test_ecommerce_full_design_pipeline():
