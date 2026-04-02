@@ -2,11 +2,14 @@
 name = "app-factory"
 version = "0.1.0"
 description = "Role-driven multi-project development orchestration kernel."
-readme = "PLAN.md"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "langgraph>=0.2,<1",
 ]
+
+[project.scripts]
+app-factory = "app_factory.main:main"
 
 [project.optional-dependencies]
 dev = [
