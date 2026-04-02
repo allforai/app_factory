@@ -1,0 +1,28 @@
+{
+  "projects": {
+    "shop-web": {
+      "llm_preferences": {
+        "provider": "openrouter",
+        "concept_provider": "openrouter",
+        "planning_provider": "openrouter",
+        "retry_provider": "google",
+        "planning_model": "openai/gpt-5.4-mini",
+        "retry_model": "google/gemini-2.5-flash"
+      },
+      "knowledge_preferences": {
+        "preferred_ids": ["phase.testing"],
+        "excluded_ids": []
+      },
+      "pull_policy_overrides": [
+        {
+          "executor": "codex",
+          "role_id": "software_engineer",
+          "phase": "implementation",
+          "mode": "summary",
+          "budget": 444,
+          "ref_patterns": ["concept_brief.md", "domain.ecommerce"]
+        }
+      ]
+    }
+  }
+}

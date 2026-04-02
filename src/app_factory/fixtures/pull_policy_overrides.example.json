@@ -1,0 +1,21 @@
+{
+  "pull_policy_overrides": [
+    {
+      "executor": "codex",
+      "role_id": "software_engineer",
+      "phase": "implementation",
+      "project_archetype": "ecommerce",
+      "mode": "summary",
+      "budget": 333,
+      "ref_patterns": ["concept_brief.md", "project://"]
+    },
+    {
+      "executor": "claude_code",
+      "role_id": "qa_engineer",
+      "phase": "testing",
+      "mode": "summary",
+      "budget": 1500,
+      "ref_patterns": ["acceptance_goals.json", "testing"]
+    }
+  ]
+}

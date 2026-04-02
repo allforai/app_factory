@@ -1,0 +1,100 @@
+{
+  "initiative": {
+    "initiative_id": "game-001",
+    "name": "Sky Archive",
+    "goal": "Build a narrative-driven single-player tactics game prototype",
+    "status": "active",
+    "project_ids": ["game-client", "game-server"],
+    "shared_concepts": ["concept://world-core", "concept://combat-loop"],
+    "shared_contracts": ["contract://combat-api-v1"],
+    "initiative_memory_ref": "memory://initiative/game-001",
+    "global_acceptance_goals": ["core combat loop playable", "world tone coherent"],
+    "requirement_event_ids": [],
+    "scheduler_state": {}
+  },
+  "projects": [
+    {
+      "project_id": "game-client",
+      "initiative_id": "game-001",
+      "parent_project_id": "game-root",
+      "name": "Game Client",
+      "kind": "client",
+      "status": "active",
+      "current_phase": "implementation",
+      "phases": ["concept_collect", "analysis_design", "implementation", "testing", "acceptance", "requirement_patch"],
+      "project_archetype": "game",
+      "domains": ["worldbuilding", "character_design", "ui", "gameplay", "qa"],
+      "active_roles": ["product_manager", "execution_planner", "interaction_designer", "ui_designer", "technical_architect", "software_engineer", "qa_engineer", "integration_owner"],
+      "concept_model_refs": ["concept://world-core", "concept://combat-loop"],
+      "contracts": ["contract://combat-api-v1"],
+      "executor_policy_ref": "policy://game-default",
+      "work_package_ids": ["wp-combat-core", "wp-ui-hud"],
+      "seam_ids": ["seam-client-server-combat"],
+      "artifacts": {
+        "repo_paths": ["game-client/src", "game-client/tests"],
+        "docs": ["docs/combat-design.md"]
+      },
+      "project_memory_ref": "memory://project/game-client",
+      "assumptions": [],
+      "requirement_events": [],
+      "children": [],
+      "coordination_project": false,
+      "created_at": "2026-04-02T12:00:00Z",
+      "updated_at": "2026-04-02T12:30:00Z"
+    }
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "wp-combat-core",
+      "initiative_id": "game-001",
+      "project_id": "game-client",
+      "phase": "implementation",
+      "domain": "gameplay",
+      "role_id": "software_engineer",
+      "title": "Core combat prototype",
+      "goal": "Implement a playable turn-based combat loop prototype",
+      "status": "ready",
+      "priority": 90,
+      "executor": "codex",
+      "fallback_executors": ["claude_code"],
+      "inputs": ["design://combat-loop-v1", "contract://combat-api-v1"],
+      "deliverables": ["game-client/src/combat/**", "game-client/tests/combat/**"],
+      "constraints": ["single-player only", "no new engine dependencies"],
+      "acceptance_criteria": ["one full combat round playable", "combat state testable"],
+      "depends_on": [],
+      "blocks": ["wp-playtest-smoke"],
+      "related_seams": ["seam-client-server-combat"],
+      "assumptions": [],
+      "artifacts_created": [],
+      "findings": [],
+      "handoff_notes": [],
+      "attempt_count": 0,
+      "max_attempts": 3,
+      "created_at": "2026-04-02T12:10:00Z",
+      "updated_at": "2026-04-02T12:10:00Z"
+    }
+  ],
+  "seams": [
+    {
+      "seam_id": "seam-client-server-combat",
+      "initiative_id": "game-001",
+      "source_project_id": "game-client",
+      "target_project_id": "game-server",
+      "type": "api",
+      "name": "Combat state sync seam",
+      "status": "frozen",
+      "contract_version": "v1",
+      "owner_role_id": "integration_owner",
+      "owner_executor": "claude_code",
+      "artifacts": ["contracts/combat-api-v1.yaml"],
+      "acceptance_criteria": ["client/server state enum alignment"],
+      "risks": [],
+      "related_work_packages": ["wp-combat-core"],
+      "change_log": [{"version": "v1", "summary": "initial freeze"}],
+      "verification_refs": ["test://combat-integration-v1"],
+      "created_at": "2026-04-02T12:15:00Z",
+      "updated_at": "2026-04-02T12:20:00Z"
+    }
+  ]
+}
+
