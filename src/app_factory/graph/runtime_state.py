@@ -34,6 +34,10 @@ class RuntimeState:
     recent_executor_results: list[str] = field(default_factory=list)
     snapshot: dict[str, Any] | None = None
     replan_reason: str | None = None
+    product_design: dict[str, object] | None = None
+    design_valid: bool | None = None
+    design_validation_issues: list[dict[str, object]] = field(default_factory=list)
+    closure_expansion: dict[str, object] | None = None
     needs_user_input: bool = False
     termination_signal: str | None = None
 

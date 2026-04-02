@@ -5,6 +5,9 @@ from .graph_patch import apply_patch_operations, apply_project_split, apply_requ
 from .planning_decision import PlanningDecision, llm_planning_decider
 from .retry_decision import RetryDecision, build_retry_guardrail, decide_retry_action, llm_retry_decider
 from .retry_policy import resolve_retry_action
+from .design_generator import generate_product_design
+from .design_validator import validate_design, ValidationResult
+from .closure_expander import expand_closures, ClosureExpansionResult
 
 __all__ = [
     "ConceptCollectionDecision",
@@ -21,4 +24,9 @@ __all__ = [
     "RetryDecision",
     "resolve_retry_action",
     "verify_seam",
+    "generate_product_design",
+    "validate_design",
+    "ValidationResult",
+    "expand_closures",
+    "ClosureExpansionResult",
 ]
