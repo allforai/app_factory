@@ -48,6 +48,12 @@ tools:
   brave_search:
     enabled: true
   image_generation:
+    provider: fal
+    model: fal-ai/flux/schnell
+  image_generation_hq:
+    provider: fal
+    model: fal-ai/flux-pro/v1.1
+  image_generation_gemini:
     provider: google
     model: gemini-3.1-flash-image-preview
   demo_data:

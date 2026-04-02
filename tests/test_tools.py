@@ -1,8 +1,9 @@
 """Tests for tools module — unit tests (no real API calls)."""
 
 from app_factory.tools.brave_search import BraveSearchClient, SearchResult
-from app_factory.tools.xv_validator import XVValidator, XVResult, _DEFAULT_XV_ROUTES
+from app_factory.tools.fal_image import FalImageClient, FalImageResult
 from app_factory.tools.image_gen import ImageGenClient, ImageResult
+from app_factory.tools.xv_validator import XVValidator, XVResult, _DEFAULT_XV_ROUTES
 
 
 def test_brave_search_no_key_returns_empty():
@@ -46,3 +47,18 @@ def test_image_result_model():
     result = ImageResult(prompt="test", image_data=b"fake", mime_type="image/png", model="gemini")
     assert result.success is True
     assert result.mime_type == "image/png"
+
+
+def test_fal_no_key_returns_error():
+    client = FalImageClient(api_key=None)
+    client.api_key = None
+    result = client.generate("a UI mockup")
+    assert isinstance(result, FalImageResult)
+    assert not result.success
+    assert "no FAL_KEY" in result.error
+
+
+def test_fal_result_model():
+    result = FalImageResult(prompt="test", image_url="https://fal.ai/img/123.png", model="flux")
+    assert result.success is True
+    assert result.image_url.startswith("https://")
