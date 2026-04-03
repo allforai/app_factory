@@ -220,14 +220,14 @@ def test_main_init_command_writes_all_files_into_runtime_directory(capsys, tmp_p
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    runtime_root = tmp_path / ".devforge-runtime"
+    runtime_root = tmp_path / ".devforge"
     snapshot_path = runtime_root / "devforge.snapshot.json"
     project_config_path = runtime_root / "devforge.project_config.json"
 
     assert exit_code == 0
-    assert payload["runtime_root"] == ".devforge-runtime"
-    assert payload["snapshot_path"] == ".devforge-runtime/devforge.snapshot.json"
-    assert payload["project_config_path"] == ".devforge-runtime/devforge.project_config.json"
+    assert payload["runtime_root"] == ".devforge"
+    assert payload["snapshot_path"] == ".devforge/devforge.snapshot.json"
+    assert payload["project_config_path"] == ".devforge/devforge.project_config.json"
     assert snapshot_path.exists()
     assert project_config_path.exists()
 
@@ -238,7 +238,7 @@ def test_main_init_command_writes_all_files_into_runtime_directory(capsys, tmp_p
 
 def test_main_init_command_refuses_to_overwrite_existing_files(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    runtime_root = tmp_path / ".devforge-runtime"
+    runtime_root = tmp_path / ".devforge"
     runtime_root.mkdir()
     (runtime_root / "devforge.snapshot.json").write_text("{}", encoding="utf-8")
 
@@ -261,7 +261,7 @@ def test_main_init_workspace_command_creates_guardian_entry(capsys, tmp_path, mo
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    snapshot_path = tmp_path / ".devforge-runtime" / "devforge.snapshot.json"
+    snapshot_path = tmp_path / ".devforge" / "devforge.snapshot.json"
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
 
     assert exit_code == 0
@@ -280,8 +280,8 @@ def test_main_init_workspace_command_detects_xcode_projects(capsys, tmp_path, mo
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    snapshot_path = tmp_path / ".devforge-runtime" / "devforge.snapshot.json"
-    project_config_path = tmp_path / ".devforge-runtime" / "devforge.project_config.json"
+    snapshot_path = tmp_path / ".devforge" / "devforge.snapshot.json"
+    project_config_path = tmp_path / ".devforge" / "devforge.project_config.json"
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     project_config = json.loads(project_config_path.read_text(encoding="utf-8"))
 

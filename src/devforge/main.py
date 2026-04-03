@@ -16,7 +16,7 @@ from devforge.persistence import JsonStore, build_local_workspace_persistence
 from devforge.topology import WorkspaceCandidate, default_live_llm_preferences, dump_decision
 from devforge.executors import get_executor_adapter
 
-DEFAULT_RUNTIME_ROOT = ".devforge-runtime"
+DEFAULT_RUNTIME_ROOT = ".devforge"
 DEFAULT_SNAPSHOT_FILENAME = "devforge.snapshot.json"
 DEFAULT_PROJECT_CONFIG_FILENAME = "devforge.project_config.json"
 WORKSPACE_PROJECT_MARKERS = (
@@ -649,7 +649,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
     fixture_parser.add_argument("name", help="Fixture name without .json suffix, for example ecommerce_project.")
     fixture_parser.add_argument("--json", action="store_true", help="Print full JSON result instead of summary.")
 
-    init_parser = subparsers.add_parser("init", help="Create starter DevForge files in ./.devforge-runtime/.")
+    init_parser = subparsers.add_parser("init", help="Create starter DevForge files in ./.devforge/.")
     init_parser.add_argument("--force", action="store_true", help="Overwrite generated files when they already exist.")
     init_parser.add_argument("--name", help="Optional project display name. Defaults to the current directory name.")
     init_parser.add_argument("--workspace", action="store_true", help="Initialize the current directory as a multi-project workspace guardian entry.")

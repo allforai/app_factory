@@ -11,12 +11,12 @@ devforge init --name "My Existing Project"
 devforge init --workspace
 ```
 
-`init` writes starter files into `./.devforge-runtime/`:
+`init` writes starter files into `./.devforge/`:
 
-- `./.devforge-runtime/devforge.snapshot.json`
-- `./.devforge-runtime/devforge.project_config.json`
+- `./.devforge/devforge.snapshot.json`
+- `./.devforge/devforge.project_config.json`
 
-It also prepares `./.devforge-runtime/` as the default persistence root for later runs.
+It also prepares `./.devforge/` as the default persistence root for later runs.
 
 Use `--workspace` when the current directory is a multi-project root. DevForge will
 create a guardian coordination project and register each discovered child project
@@ -36,12 +36,12 @@ Fixture runs automatically apply a sibling `*.project_config.json` file when pre
 ## Snapshot
 
 ```bash
-devforge snapshot ./.devforge-runtime/devforge.snapshot.json
-devforge snapshot ./.devforge-runtime/devforge.snapshot.json --project-config ./.devforge-runtime/devforge.project_config.json
-devforge snapshot ./.devforge-runtime/devforge.snapshot.json --persistence-root ./.devforge-runtime --json
-python -m devforge.main snapshot ./.devforge-runtime/devforge.snapshot.json
-python -m devforge.main snapshot ./.devforge-runtime/devforge.snapshot.json --project-config ./.devforge-runtime/devforge.project_config.json
-python -m devforge.main snapshot ./.devforge-runtime/devforge.snapshot.json --persistence-root ./.devforge-runtime --json
+devforge snapshot ./.devforge/devforge.snapshot.json
+devforge snapshot ./.devforge/devforge.snapshot.json --project-config ./.devforge/devforge.project_config.json
+devforge snapshot ./.devforge/devforge.snapshot.json --persistence-root ./.devforge --json
+python -m devforge.main snapshot ./.devforge/devforge.snapshot.json
+python -m devforge.main snapshot ./.devforge/devforge.snapshot.json --project-config ./.devforge/devforge.project_config.json
+python -m devforge.main snapshot ./.devforge/devforge.snapshot.json --persistence-root ./.devforge --json
 ```
 
 `--persistence-root` creates a local runtime workspace using:

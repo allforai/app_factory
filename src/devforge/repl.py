@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from devforge.session import RunRecord, SessionState, TransitionLogEntry, UserIntent, ViewState
 
-DEFAULT_RUNTIME_ROOT = ".devforge-runtime"
+DEFAULT_RUNTIME_ROOT = ".devforge"
 DEFAULT_SNAPSHOT_FILENAME = "devforge.snapshot.json"
 DEFAULT_PROJECT_CONFIG_FILENAME = "devforge.project_config.json"
 SESSION_FILENAME = "session.json"

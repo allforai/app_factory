@@ -34,11 +34,11 @@ devforge init
 devforge init --workspace
 ```
 
-默认会把文件都放进 `./.devforge-runtime/`：
+默认会把文件都放进 `./.devforge/`：
 
-- `./.devforge-runtime/devforge.snapshot.json`
-- `./.devforge-runtime/devforge.project_config.json`
-- `./.devforge-runtime/` 作为后续运行时持久化根目录
+- `./.devforge/devforge.snapshot.json`
+- `./.devforge/devforge.project_config.json`
+- `./.devforge/` 作为后续运行时持久化根目录
 
 如果当前目录本身是一个多项目 workspace，可以用 `devforge init --workspace`。
 它会把当前目录初始化成一个“守护入口”项目，并自动登记一层子目录里的子项目。
@@ -62,19 +62,19 @@ python -m devforge.main fixture ecommerce_project --json
 运行自己的 snapshot：
 
 ```bash
-devforge snapshot ./.devforge-runtime/devforge.snapshot.json
+devforge snapshot ./.devforge/devforge.snapshot.json
 ```
 
 给 snapshot 叠一份项目配置：
 
 ```bash
-devforge snapshot ./.devforge-runtime/devforge.snapshot.json --project-config ./.devforge-runtime/devforge.project_config.json
+devforge snapshot ./.devforge/devforge.snapshot.json --project-config ./.devforge/devforge.project_config.json
 ```
 
 启用本地持久化工作区：
 
 ```bash
-devforge snapshot ./.devforge-runtime/devforge.snapshot.json --persistence-root ./.devforge-runtime --json
+devforge snapshot ./.devforge/devforge.snapshot.json --persistence-root ./.devforge --json
 ```
 
 `--persistence-root` 会创建：
