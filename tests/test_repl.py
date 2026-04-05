@@ -25,6 +25,44 @@ def test_main_without_runtime_enters_repl_and_reports_missing_runtime(tmp_path, 
     assert "Run 'devforge init'" in captured.out
 
 
+def test_run_interactive_session_onboards_missing_runtime_in_current_directory(tmp_path) -> None:
+    output: list[str] = []
+    scripted_inputs = iter(["1", "退出"])
+
+    exit_code = run_interactive_session(
+        tmp_path,
+        input_fn=lambda _prompt: next(scripted_inputs),
+        output_fn=output.append,
+    )
+
+    assert exit_code == 0
+    assert (tmp_path / ".devforge" / "devforge.snapshot.json").exists()
+    joined = "\n".join(output)
+    assert "No DevForge runtime found" in joined
+    assert "Initialized DevForge" in joined
+    assert "Current Session Status:" in joined
+
+
+def test_run_interactive_session_can_switch_directory_before_loading_runtime(tmp_path) -> None:
+    target = tmp_path / "app"
+    target.mkdir()
+    initialize_project(target, force=True, project_name="Demo")
+    output: list[str] = []
+    scripted_inputs = iter(["3", str(target), "退出"])
+
+    exit_code = run_interactive_session(
+        tmp_path,
+        input_fn=lambda _prompt: next(scripted_inputs),
+        output_fn=output.append,
+    )
+
+    assert exit_code == 0
+    joined = "\n".join(output)
+    assert "No DevForge runtime found" in joined
+    assert "Current Session Status:" in joined
+    assert "Project: demo" in joined
+
+
 def test_run_interactive_session_supports_status_runs_attach_back_and_quit(tmp_path) -> None:
     initialize_project(tmp_path, force=True, project_name="Demo")
     session = SessionState(

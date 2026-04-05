@@ -1,4 +1,5 @@
 import json
+import builtins
 from pathlib import Path
 
 from devforge.main import main, run_snapshot_cycle
@@ -125,6 +126,104 @@ def test_main_snapshot_command_supports_project_config_and_json(capsys, tmp_path
     assert "phase.testing" in payload["runtime"]["selected_knowledge"]
 
 
+def test_main_snapshot_command_persists_updated_snapshot_back_to_source_file(capsys, tmp_path) -> None:
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "initiative": {
+                    "initiative_id": "i1",
+                    "name": "demo",
+                    "goal": "demo",
+                    "status": "active",
+                    "project_ids": ["p1"],
+                    "shared_concepts": [],
+                    "shared_contracts": [],
+                    "initiative_memory_ref": None,
+                    "global_acceptance_goals": [],
+                    "requirement_event_ids": [],
+                    "scheduler_state": {},
+                },
+                "projects": [
+                    {
+                        "project_id": "p1",
+                        "initiative_id": "i1",
+                        "parent_project_id": None,
+                        "name": "demo",
+                        "kind": "frontend",
+                        "status": "active",
+                        "current_phase": "implementation",
+                        "phases": ["implementation"],
+                        "project_archetype": "ecommerce",
+                        "domains": ["frontend"],
+                        "active_roles": ["software_engineer"],
+                        "concept_model_refs": [],
+                        "contracts": [],
+                        "pull_policy_overrides": [],
+                        "llm_preferences": {},
+                        "knowledge_preferences": {},
+                        "executor_policy_ref": None,
+                        "work_package_ids": ["wp-1"],
+                        "seam_ids": [],
+                        "artifacts": {"repo_paths": [], "docs": []},
+                        "project_memory_ref": None,
+                        "assumptions": [],
+                        "requirement_events": [],
+                        "children": [],
+                        "coordination_project": False,
+                        "created_at": None,
+                        "updated_at": None,
+                    }
+                ],
+                "work_packages": [
+                    {
+                        "work_package_id": "wp-1",
+                        "initiative_id": "i1",
+                        "project_id": "p1",
+                        "phase": "implementation",
+                        "domain": "frontend",
+                        "role_id": "software_engineer",
+                        "title": "demo",
+                        "goal": "demo",
+                        "status": "ready",
+                        "priority": 100,
+                        "executor": "codex",
+                        "fallback_executors": [],
+                        "inputs": [],
+                        "deliverables": [],
+                        "constraints": [],
+                        "acceptance_criteria": [],
+                        "depends_on": [],
+                        "blocks": [],
+                        "related_seams": [],
+                        "assumptions": [],
+                        "artifacts_created": [],
+                        "findings": [],
+                        "handoff_notes": [],
+                        "attempt_count": 0,
+                        "max_attempts": 1,
+                        "created_at": None,
+                        "updated_at": None,
+                    }
+                ],
+                "seams": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(["snapshot", str(snapshot_path), "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    persisted = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert payload["snapshot"]["work_packages"][0]["status"] == "verified"
+    assert persisted["work_packages"][0]["status"] == "verified"
+    assert persisted["work_packages"][0]["handoff_notes"] == ["stub execution completed"]
+
+
 def test_run_snapshot_cycle_supports_persistence_root(tmp_path) -> None:
     fixture_snapshot = {
         "initiative": {
@@ -234,6 +333,42 @@ def test_main_init_command_writes_all_files_into_runtime_directory(capsys, tmp_p
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     assert snapshot["projects"][0]["artifacts"]["repo_paths"] == ["."]
     assert snapshot["work_packages"][0]["work_package_id"] == "wp-repo-onboarding"
+    assert payload["setup_profile"] == {
+        "llm": "default",
+        "focus": "balanced",
+        "context": "standard",
+    }
+
+
+def test_main_init_guided_writes_user_selected_project_config(capsys, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "llm.yaml").write_text("provider: openrouter\nmodel: openai/gpt-5.4-mini\n", encoding="utf-8")
+    answers = iter(["1", "3", "2"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt: next(answers))
+
+    exit_code = main(["init", "--guided"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    project_config = json.loads((tmp_path / ".devforge" / "devforge.project_config.json").read_text(encoding="utf-8"))
+    preferences = project_config["projects"][payload["project_id"]]
+
+    assert exit_code == 0
+    assert payload["setup_profile"] == {
+        "llm": "auto",
+        "focus": "testing",
+        "context": "lean",
+    }
+    assert preferences["llm_preferences"]["provider"] == "openrouter"
+    assert preferences["llm_preferences"]["model"] == "openai/gpt-5.4-mini"
+    assert preferences["knowledge_preferences"] == {
+        "preferred_ids": ["phase.testing"],
+        "excluded_ids": [],
+    }
+    assert preferences["pull_policy_overrides"] == [
+        {"executor": "codex", "mode": "summary", "budget": 900},
+        {"executor": "claude_code", "mode": "summary", "budget": 900},
+    ]
 
 
 def test_main_init_command_refuses_to_overwrite_existing_files(tmp_path, monkeypatch) -> None:

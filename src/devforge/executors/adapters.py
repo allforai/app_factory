@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
+import json
+import os
+import time
 from typing import Any
 
 from devforge.context import ContextBroker, ResolvedContext
@@ -12,6 +15,7 @@ from devforge.topology import WorkspaceCandidate, WorkspaceModelingDecision, cla
 from .base import ClaudeCodeTaskRequest, CodexTaskRequest, ExecutorDispatch, SubmissionReceipt
 from .payloads import format_executor_payload
 from .pull_policy import resolve_pull_strategy
+from .subprocess_transport import SubprocessTransport, build_claude_code_command, build_codex_command
 
 
 @dataclass(slots=True)
@@ -21,6 +25,7 @@ class BaseExecutorAdapter:
     name: str
     supported_phases: tuple[str, ...]
     supported_roles: tuple[str, ...]
+    _subprocess_transport: SubprocessTransport | None = None
 
     def supports_phase(self, phase: str) -> bool:
         return phase in self.supported_phases
@@ -73,12 +78,83 @@ class BaseExecutorAdapter:
     def submit(self, request: dict[str, Any] | Any) -> SubmissionReceipt:
         """Transport boundary. Replace this for real executor integrations."""
         request_dict = self._request_to_dict(request)
+        if self._use_subprocess_transport():
+            final_result = self._run_subprocess_request(request_dict)
+            return SubmissionReceipt(
+                execution_id=final_result["execution_id"],
+                accepted=True,
+                message="subprocess transport completed",
+                metadata={"transport": "subprocess", "final_result": final_result},
+            )
         return SubmissionReceipt(
             execution_id="%s:%s" % (self.name, request_dict["work_package_id"]),
             accepted=True,
             message="stub transport submitted",
             metadata={"transport": "stub"},
         )
+
+    def _use_subprocess_transport(self) -> bool:
+        return os.environ.get("DEVFORGE_EXECUTOR_TRANSPORT", "").lower() == "subprocess"
+
+    def _get_subprocess_transport(self) -> SubprocessTransport:
+        if self._subprocess_transport is None:
+            self._subprocess_transport = SubprocessTransport()
+        return self._subprocess_transport
+
+    def _build_live_command(self, request_dict: dict[str, Any]) -> list[str] | None:
+        return None
+
+    def _run_subprocess_request(self, request_dict: dict[str, Any]) -> dict[str, Any]:
+        command = self._build_live_command(request_dict)
+        if not command:
+            return {
+                "execution_id": f"{self.name}:{request_dict['work_package_id']}",
+                "work_package_id": request_dict["work_package_id"],
+                "cycle_id": request_dict.get("cycle_id"),
+                "status": "failed",
+                "summary": f"{self.name} live transport not configured",
+                "findings": [],
+            }
+        transport = self._get_subprocess_transport()
+        started = transport.submit(
+            command=command,
+            working_dir=request_dict.get("working_dir") or os.getcwd(),
+            timeout=int(request_dict.get("timeout_sec") or 300),
+        )
+        result = started
+        while result.status == "running":
+            time.sleep(0.05)
+            result = transport.poll(started.execution_id, check_timeout=True)
+        parsed = self._parse_subprocess_output(result.stdout)
+        summary = result.stderr.strip() or parsed.get("summary") or result.stdout.strip() or f"{self.name} subprocess {result.status}"
+        return {
+            "execution_id": result.execution_id,
+            "work_package_id": request_dict["work_package_id"],
+            "cycle_id": request_dict.get("cycle_id"),
+            "status": "completed" if result.status == "completed" else "failed",
+            "summary": summary,
+            "artifacts_created": list(parsed.get("artifacts_created", [])),
+            "artifacts_modified": list(parsed.get("artifacts_modified", [])),
+            "tests_run": list(parsed.get("tests_run", [])),
+            "findings": list(parsed.get("findings", [])),
+            "handoff_notes": list(parsed.get("handoff_notes", [])),
+            "raw_output_ref": parsed.get("raw_output_ref") or ("stdout" if result.stdout else None),
+            "started_at": None,
+            "completed_at": None,
+        }
+
+    def _parse_subprocess_output(self, stdout: str) -> dict[str, Any]:
+        """Parse structured executor output when the subprocess prints JSON."""
+        text = (stdout or "").strip()
+        if not text:
+            return {}
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return payload
 
     def submit_request(self, request: dict[str, Any], *, accepted: bool) -> ExecutorDispatch:
         """Submit a prepared request and normalize it into orchestration dispatch metadata."""
@@ -225,6 +301,13 @@ class ClaudeCodeAdapter(BaseExecutorAdapter):
         dispatch.metadata["submit_boundary"] = "claude_code.submit_request"
         return dispatch
 
+    def _build_live_command(self, request_dict: dict[str, Any]) -> list[str] | None:
+        payload = request_dict.get("payload", {})
+        prompt = payload.get("brief") or request_dict.get("goal")
+        if not prompt:
+            return None
+        return build_claude_code_command(prompt=prompt, working_dir=request_dict.get("working_dir") or os.getcwd())
+
 
 class CodexAdapter(BaseExecutorAdapter):
     def __init__(self) -> None:
@@ -257,6 +340,13 @@ class CodexAdapter(BaseExecutorAdapter):
         dispatch.message = "codex request accepted" if dispatch.accepted else "codex request rejected"
         dispatch.metadata["submit_boundary"] = "codex.submit_request"
         return dispatch
+
+    def _build_live_command(self, request_dict: dict[str, Any]) -> list[str] | None:
+        payload = request_dict.get("payload", {})
+        prompt = payload.get("task") or request_dict.get("goal")
+        if not prompt:
+            return None
+        return build_codex_command(prompt=prompt, working_dir=request_dict.get("working_dir") or os.getcwd())
 
 class ClineAdapter(BaseExecutorAdapter):
     def __init__(self) -> None:

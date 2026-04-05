@@ -1,6 +1,7 @@
 from devforge.context import ContextBroker
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -33,6 +34,7 @@ def test_claude_code_payload_uses_design_heavy_shape() -> None:
     assert payload["style"] == "design_heavy"
     assert payload["brief"] == "implement backend flow"
     assert payload["references"] == ["domain.ecommerce"]
+    assert payload["result_contract"]["format"] == "json"
 
 
 def test_claude_code_architect_payload_is_architecture_heavy() -> None:
@@ -50,6 +52,7 @@ def test_claude_code_architect_payload_is_architecture_heavy() -> None:
     )
     assert payload["style"] == "architecture_heavy"
     assert payload["decision_axes"] == ["module_boundaries", "contracts", "integration_risks"]
+    assert "summary" in payload["result_contract"]["required_keys"]
 
 
 def test_codex_payload_uses_execution_heavy_shape() -> None:
@@ -68,6 +71,7 @@ def test_codex_payload_uses_execution_heavy_shape() -> None:
     assert payload["style"] == "execution_heavy"
     assert payload["task"] == "implement frontend flow"
     assert payload["knowledge_refs"] == ["phase.implementation"]
+    assert "findings" in payload["result_contract"]["optional_keys"]
 
 
 def test_codex_qa_payload_is_qa_execution() -> None:
@@ -85,6 +89,7 @@ def test_codex_qa_payload_is_qa_execution() -> None:
     )
     assert payload["style"] == "qa_execution"
     assert payload["bug_focus"] == ["edge_cases", "regression", "contract_mismatches"]
+    assert payload["result_contract"]["finding_shape"]["id"] == "string"
 
 
 def test_codex_adapter_prepares_typed_request_before_submission() -> None:
@@ -231,6 +236,82 @@ def test_adapter_normalize_result_preserves_rich_fields() -> None:
     assert result.findings[0].id == "f1"
     assert result.handoff_notes == ["verify checkout seam"]
     assert result.raw_output_ref == "run://codex/wp-1"
+
+
+def test_codex_adapter_can_return_subprocess_final_result(monkeypatch) -> None:
+    adapter = CodexAdapter()
+    work_package = WorkPackage(
+        work_package_id="wp-live",
+        initiative_id="i1",
+        project_id="p1",
+        phase="implementation",
+        domain="core",
+        role_id="software_engineer",
+        title="live run",
+        goal="run live",
+        status="ready",
+    )
+    runtime_context = {
+        "cycle_id": "cycle-live",
+        "working_dir": "/tmp/project",
+        "node_knowledge_packet": {
+            "brief": "run live",
+            "focus": {"phase": "implementation", "role_id": "software_engineer", "domain": "core"},
+            "constraints": [],
+            "acceptance": [],
+            "deep_refs": ["phase.implementation"],
+        },
+    }
+    monkeypatch.setenv("DEVFORGE_EXECUTOR_TRANSPORT", "subprocess")
+
+    with patch.object(
+        adapter,
+        "_run_subprocess_request",
+        return_value={
+            "execution_id": "exec-live",
+            "work_package_id": "wp-live",
+            "cycle_id": "cycle-live",
+            "status": "completed",
+            "summary": "real executor output",
+            "findings": [],
+        },
+    ):
+        dispatch = adapter.dispatch(work_package, runtime_context)
+
+    assert dispatch.accepted is True
+    assert dispatch.metadata["submission_receipt"]["metadata"]["transport"] == "subprocess"
+    assert dispatch.metadata["submission_receipt"]["metadata"]["final_result"]["summary"] == "real executor output"
+
+
+def test_parse_subprocess_output_extracts_structured_result_fields() -> None:
+    adapter = CodexAdapter()
+
+    parsed = adapter._parse_subprocess_output(
+        json.dumps(
+            {
+                "summary": "implemented feature",
+                "artifacts_created": ["src/devforge/repl.py"],
+                "artifacts_modified": ["README.md"],
+                "tests_run": ["pytest -q tests/test_repl.py"],
+                "handoff_notes": ["verify startup flow"],
+                "findings": [
+                    {
+                        "id": "f-live-1",
+                        "summary": "manual verification still needed",
+                        "severity": "medium",
+                        "source": "executor",
+                    }
+                ],
+                "raw_output_ref": "stdout://codex",
+            }
+        )
+    )
+
+    assert parsed["summary"] == "implemented feature"
+    assert parsed["artifacts_created"] == ["src/devforge/repl.py"]
+    assert parsed["tests_run"] == ["pytest -q tests/test_repl.py"]
+    assert parsed["handoff_notes"] == ["verify startup flow"]
+    assert parsed["findings"][0]["id"] == "f-live-1"
 
 
 def test_adapter_pull_context_uses_shared_broker(tmp_path) -> None:

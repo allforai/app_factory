@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
+import sys
 from typing import Any, Callable
 
 from devforge.session import RunRecord, SessionState, TransitionLogEntry, UserIntent, ViewState
@@ -263,6 +264,83 @@ def execute_continue(root: str | Path = ".") -> tuple[SessionState, list[RunReco
     return session, runs, transitions, result
 
 
+def _load_or_onboard_runtime(
+    root: Path,
+    *,
+    input_fn: Callable[[str], str],
+    output_fn: Callable[[str], None],
+    interactive_available: bool,
+) -> tuple[Path, SessionState, ViewState, list[RunRecord], list[TransitionLogEntry], dict[str, Any]] | None:
+    """Load an existing runtime or interactively onboard the user into one."""
+    current_root = root
+    while True:
+        try:
+            session, view, runs, transitions, snapshot = load_session_bundle(current_root)
+            return current_root, session, view, runs, transitions, snapshot
+        except FileNotFoundError:
+            if not interactive_available:
+                output_fn(
+                    "DevForge runtime not initialized. Run 'devforge init' or 'devforge init --workspace' first."
+                )
+                return None
+
+            output_fn(f"No DevForge runtime found in {current_root}.")
+            output_fn("1. Initialize this directory")
+            output_fn("2. Initialize this directory as a workspace")
+            output_fn("3. Switch to another directory")
+            output_fn("4. Quit")
+            try:
+                choice = input_fn("Choose 1-4 [1]: ").strip()
+            except EOFError:
+                return None
+            except KeyboardInterrupt:
+                output_fn("")
+                return None
+            if not choice:
+                choice = "1"
+
+            if choice == "1":
+                from devforge.main import initialize_project
+
+                result = initialize_project(current_root, force=False, workspace_mode=False)
+                output_fn(f"Initialized DevForge in {current_root}.")
+                output_fn(f"Project: {result['project_id']}")
+                continue
+            if choice == "2":
+                from devforge.main import initialize_project
+
+                result = initialize_project(current_root, force=False, workspace_mode=True)
+                output_fn(f"Initialized workspace runtime in {current_root}.")
+                output_fn(f"Mode: {result['mode']}")
+                continue
+            if choice == "3":
+                try:
+                    raw = input_fn("Enter directory path: ").strip()
+                except EOFError:
+                    return None
+                except KeyboardInterrupt:
+                    output_fn("")
+                    return None
+                if not raw:
+                    output_fn("No directory entered.")
+                    continue
+                target = Path(raw).expanduser()
+                if not target.is_absolute():
+                    target = (current_root / target).resolve()
+                else:
+                    target = target.resolve()
+                if not target.is_dir():
+                    output_fn(f"Directory not found: {target}")
+                    continue
+                current_root = target
+                continue
+            if choice == "4":
+                output_fn("Bye.")
+                return None
+
+            output_fn("Unsupported choice.")
+
+
 def run_interactive_session(
     root: str | Path = ".",
     *,
@@ -271,13 +349,20 @@ def run_interactive_session(
 ) -> int:
     """Run the interactive DevForge session until the user exits."""
     root_path = Path(root).resolve()
-    try:
-        session, view, runs, transitions, _snapshot = load_session_bundle(root_path)
-    except FileNotFoundError:
-        output_fn(
-            "DevForge runtime not initialized. Run 'devforge init' or 'devforge init --workspace' first."
-        )
+    interactive_available = (
+        input_fn is not input
+        or output_fn is not print
+        or (sys.stdin.isatty() and sys.stdout.isatty())
+    )
+    loaded = _load_or_onboard_runtime(
+        root_path,
+        input_fn=input_fn,
+        output_fn=output_fn,
+        interactive_available=interactive_available,
+    )
+    if loaded is None:
         return 2
+    root_path, session, view, runs, transitions, _snapshot = loaded
 
     for line in _render_status(session, transitions):
         output_fn(line)

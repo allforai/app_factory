@@ -3,6 +3,7 @@ from devforge.graph.builder import _apply_executor_result, run_cycle
 from devforge.graph.transitions import next_step_for_state
 from devforge.graph.runtime_state import RuntimeState
 from devforge.main import run_fixture_cycle
+from unittest.mock import patch
 from devforge.persistence import (
     FileArtifactStore,
     JsonMemoryStore,
@@ -77,6 +78,113 @@ def test_run_cycle_selects_and_dispatches_fixture_work() -> None:
     assert result["events"][-1]["event_type"] == "cycle_completed"
 
 
+def test_run_cycle_uses_final_result_from_submission_receipt_metadata() -> None:
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "demo",
+            "goal": "demo",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "demo",
+                "kind": "frontend",
+                "status": "active",
+                "current_phase": "implementation",
+                "phases": ["implementation"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["software_engineer"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": ["wp-1"],
+                "seam_ids": [],
+                "artifacts": {"repo_paths": ["."], "docs": []},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [
+            {
+                "work_package_id": "wp-1",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "implementation",
+                "domain": "core",
+                "role_id": "software_engineer",
+                "title": "demo",
+                "goal": "demo",
+                "status": "ready",
+                "priority": 100,
+                "executor": "codex",
+                "fallback_executors": [],
+                "inputs": [],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": [],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": [],
+                "attempt_count": 0,
+                "max_attempts": 1,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+
+    from devforge.executors.registry import get_executor_adapter
+
+    adapter = get_executor_adapter("codex")
+    original_submit_request = adapter.submit_request
+
+    def patched_submit_request(request, *, accepted):
+        dispatch = original_submit_request(request, accepted=accepted)
+        dispatch.metadata["submission_receipt"]["metadata"]["final_result"] = {
+            "execution_id": dispatch.execution_id,
+            "work_package_id": "wp-1",
+            "cycle_id": "cycle-0001",
+            "status": "failed",
+            "summary": "real subprocess failure",
+            "findings": [],
+        }
+        return dispatch
+
+    with patch.object(adapter, "submit_request", side_effect=patched_submit_request):
+        result = run_cycle(snapshot)
+
+    assert result["results"][0]["status"] == "failed"
+    assert result["results"][0]["summary"] == "real subprocess failure"
+    assert result["snapshot"]["work_packages"][0]["status"] == "failed"
+
+
 def test_run_fixture_cycle_applies_project_config_override() -> None:
     result = run_fixture_cycle("ecommerce_project")
 
@@ -120,6 +228,220 @@ def test_run_cycle_works_with_store_loaded_snapshot() -> None:
     assert result["selected_work_packages"] == ["wp-cart-frontend"]
     assert result["snapshot"]["work_packages"][0]["status"] == "verified"
     assert result["dispatches"][0]["executor"] == "codex"
+
+
+def test_run_cycle_seeds_follow_up_work_after_repo_onboarding_is_verified() -> None:
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "devforge",
+            "goal": "onboard repo",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "devforge",
+                "kind": "existing_repo",
+                "status": "active",
+                "current_phase": "analysis_design",
+                "phases": ["analysis_design", "implementation"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["technical_architect", "execution_planner"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": ["wp-repo-onboarding"],
+                "seam_ids": [],
+                "artifacts": {"repo_paths": ["."], "docs": ["README.md"]},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [
+            {
+                "work_package_id": "wp-repo-onboarding",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "analysis_design",
+                "domain": "core",
+                "role_id": "technical_architect",
+                "title": "Existing repository onboarding",
+                "goal": "Analyze the repository.",
+                "status": "verified",
+                "priority": 100,
+                "executor": "codex",
+                "fallback_executors": ["claude_code"],
+                "inputs": [],
+                "deliverables": ["docs/devforge/repository-map.md"],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": [],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+
+    result = run_cycle(snapshot)
+
+    assert result["selected_work_packages"] == ["wp-initial-work-plan"]
+    follow_up = next(item for item in result["snapshot"]["work_packages"] if item["work_package_id"] == "wp-initial-work-plan")
+    assert follow_up["status"] == "ready"
+    assert follow_up["executor"] == "claude_code"
+    assert follow_up["retry_action"] == "switch_executor"
+    assert follow_up["depends_on"] == ["wp-repo-onboarding"]
+    assert "wp-initial-work-plan" in result["snapshot"]["projects"][0]["work_package_ids"]
+
+
+def test_run_cycle_seeds_implementation_work_after_initial_plan_is_verified() -> None:
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "devforge",
+            "goal": "continue development",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "devforge",
+                "kind": "existing_repo",
+                "status": "active",
+                "current_phase": "analysis_design",
+                "phases": ["analysis_design", "implementation"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["execution_planner", "software_engineer"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": ["wp-repo-onboarding", "wp-initial-work-plan"],
+                "seam_ids": [],
+                "artifacts": {"repo_paths": ["."], "docs": ["README.md"]},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [
+            {
+                "work_package_id": "wp-repo-onboarding",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "analysis_design",
+                "domain": "core",
+                "role_id": "technical_architect",
+                "title": "Existing repository onboarding",
+                "goal": "Analyze the repository.",
+                "status": "verified",
+                "priority": 100,
+                "executor": "codex",
+                "fallback_executors": ["claude_code"],
+                "inputs": [],
+                "deliverables": ["docs/devforge/repository-map.md"],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": [],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+            {
+                "work_package_id": "wp-initial-work-plan",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "analysis_design",
+                "domain": "core",
+                "role_id": "execution_planner",
+                "title": "Initial implementation backlog",
+                "goal": "Plan the next iteration.",
+                "status": "verified",
+                "priority": 90,
+                "executor": "claude_code",
+                "fallback_executors": ["claude_code"],
+                "inputs": ["wp-repo-onboarding"],
+                "deliverables": ["docs/devforge/initial-work-plan.md", "docs/devforge/next-work-packages.json"],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": ["wp-repo-onboarding"],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+        ],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+
+    result = run_cycle(snapshot)
+
+    seeded_ids = [item["work_package_id"] for item in result["snapshot"]["work_packages"]]
+    assert result["snapshot"]["projects"][0]["current_phase"] == "implementation"
+    assert "wp-runtime-state-persistence" in seeded_ids
+    assert "wp-executor-live-adapters" in seeded_ids
+    assert "wp-onboarding-entry-flow" in seeded_ids
+    assert result["selected_work_packages"] == ["wp-runtime-state-persistence"]
 
 
 def test_run_cycle_persists_events_artifacts_and_memory_when_stores_are_injected(tmp_path) -> None:

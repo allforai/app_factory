@@ -54,6 +54,207 @@ def _project_for_runtime(snapshot: dict[str, Any], runtime: RuntimeState) -> dic
     return None
 
 
+def _maybe_seed_follow_up_work(snapshot: dict[str, Any], runtime: RuntimeState) -> bool:
+    """Seed a next planning work package after repository onboarding when no work remains."""
+    project = _project_for_runtime(snapshot, runtime)
+    if project is None or project.get("kind") != "existing_repo":
+        return False
+
+    onboarding = _work_package_record(snapshot, "wp-repo-onboarding")
+    if onboarding is None or onboarding.get("status") != "verified":
+        return False
+
+    existing = _work_package_record(snapshot, "wp-initial-work-plan")
+    if existing is not None:
+        return False
+
+    snapshot.setdefault("work_packages", []).append(
+        {
+            "work_package_id": "wp-initial-work-plan",
+            "initiative_id": onboarding.get("initiative_id"),
+            "project_id": project["project_id"],
+            "phase": "analysis_design",
+            "domain": "core",
+            "role_id": "execution_planner",
+            "title": "Initial implementation backlog",
+            "goal": "Turn repository onboarding findings into a concrete next-iteration backlog for continued development.",
+            "status": "ready",
+            "priority": max(int(onboarding.get("priority", 100)) - 10, 1),
+            "executor": "codex",
+            "fallback_executors": ["claude_code"],
+            "inputs": ["wp-repo-onboarding"],
+            "deliverables": [
+                "docs/devforge/initial-work-plan.md",
+                "docs/devforge/next-work-packages.json",
+            ],
+            "constraints": [
+                "base the plan on the current repository structure",
+                "propose small executable work packages with clear acceptance criteria",
+            ],
+            "acceptance_criteria": [
+                "next iteration backlog is concrete",
+                "at least three follow-up work packages are proposed",
+            ],
+            "depends_on": ["wp-repo-onboarding"],
+            "blocks": [],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": [],
+            "attempt_count": 0,
+            "max_attempts": 3,
+            "created_at": None,
+            "updated_at": None,
+        }
+    )
+    project.setdefault("work_package_ids", []).append("wp-initial-work-plan")
+    return True
+
+
+def _maybe_seed_existing_repo_implementation_work(snapshot: dict[str, Any], runtime: RuntimeState) -> bool:
+    """Seed concrete implementation slices after the initial work plan is verified."""
+    project = _project_for_runtime(snapshot, runtime)
+    if project is None or project.get("kind") != "existing_repo":
+        return False
+
+    planning_wp = _work_package_record(snapshot, "wp-initial-work-plan")
+    if planning_wp is None or planning_wp.get("status") != "verified":
+        return False
+
+    seed_ids = [
+        "wp-runtime-state-persistence",
+        "wp-executor-live-adapters",
+        "wp-onboarding-entry-flow",
+    ]
+    if any(_work_package_record(snapshot, work_package_id) is not None for work_package_id in seed_ids):
+        return False
+
+    new_items = [
+        {
+            "work_package_id": "wp-runtime-state-persistence",
+            "initiative_id": planning_wp.get("initiative_id"),
+            "project_id": project["project_id"],
+            "phase": "implementation",
+            "domain": "core",
+            "role_id": "software_engineer",
+            "title": "Persist evolving runtime state",
+            "goal": "Make cycle state durable so resumed runs continue from the latest verified snapshot and runtime context.",
+            "status": "ready",
+            "priority": 95,
+            "executor": "codex",
+            "fallback_executors": ["claude_code"],
+            "inputs": ["wp-initial-work-plan"],
+            "deliverables": [
+                "src/devforge/main.py",
+                "src/devforge/repl.py",
+                "tests/test_main_cli.py",
+            ],
+            "constraints": [
+                "preserve existing CLI flows",
+                "avoid losing state across repeated cycles",
+            ],
+            "acceptance_criteria": [
+                "continued cycles read the latest durable state",
+                "state persistence is covered by regression tests",
+            ],
+            "depends_on": ["wp-initial-work-plan"],
+            "blocks": ["wp-executor-live-adapters"],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": [],
+            "attempt_count": 0,
+            "max_attempts": 3,
+            "created_at": None,
+            "updated_at": None,
+        },
+        {
+            "work_package_id": "wp-executor-live-adapters",
+            "initiative_id": planning_wp.get("initiative_id"),
+            "project_id": project["project_id"],
+            "phase": "implementation",
+            "domain": "core",
+            "role_id": "software_engineer",
+            "title": "Promote executor adapters toward live execution",
+            "goal": "Replace stub-only progression with executor paths that can carry real work and recover from adapter mismatches.",
+            "status": "ready",
+            "priority": 90,
+            "executor": "codex",
+            "fallback_executors": ["claude_code"],
+            "inputs": ["wp-initial-work-plan"],
+            "deliverables": [
+                "src/devforge/executors/adapters.py",
+                "src/devforge/executors/subprocess_transport.py",
+                "tests/test_graph_runner.py",
+            ],
+            "constraints": [
+                "keep fallback executor switching intact",
+                "surface adapter failures as actionable retry states",
+            ],
+            "acceptance_criteria": [
+                "executor routing supports a real continuation path",
+                "adapter fallback behavior is regression-tested",
+            ],
+            "depends_on": ["wp-runtime-state-persistence"],
+            "blocks": [],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": [],
+            "attempt_count": 0,
+            "max_attempts": 3,
+            "created_at": None,
+            "updated_at": None,
+        },
+        {
+            "work_package_id": "wp-onboarding-entry-flow",
+            "initiative_id": planning_wp.get("initiative_id"),
+            "project_id": project["project_id"],
+            "phase": "implementation",
+            "domain": "core",
+            "role_id": "software_engineer",
+            "title": "Make startup onboarding user-facing",
+            "goal": "Guide users into initialize, switch-directory, and resume flows from the default entrypoint without requiring CLI internals.",
+            "status": "ready",
+            "priority": 85,
+            "executor": "codex",
+            "fallback_executors": ["claude_code"],
+            "inputs": ["wp-initial-work-plan"],
+            "deliverables": [
+                "src/devforge/repl.py",
+                "README.md",
+                "tests/test_repl.py",
+            ],
+            "constraints": [
+                "keep non-interactive mode script-friendly",
+                "optimize for first-run discoverability",
+            ],
+            "acceptance_criteria": [
+                "missing-runtime startup guides the user to a viable next action",
+                "interactive onboarding paths are covered by tests",
+            ],
+            "depends_on": ["wp-runtime-state-persistence"],
+            "blocks": [],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": [],
+            "attempt_count": 0,
+            "max_attempts": 3,
+            "created_at": None,
+            "updated_at": None,
+        },
+    ]
+    snapshot.setdefault("work_packages", []).extend(new_items)
+    project.setdefault("work_package_ids", []).extend(seed_ids)
+    project["current_phase"] = "implementation"
+    return True
+
+
 def _select_knowledge_ids(snapshot: dict[str, Any], runtime: RuntimeState, selected: list[WorkPackage]) -> list[str]:
     project = _project_for_runtime(snapshot, runtime)
     if project is None:
@@ -285,6 +486,7 @@ def _dispatch_selected_work(
             "cycle_id": runtime.cycle_id,
             "initiative_id": runtime.initiative_id,
             "project_id": runtime.active_project_id,
+            "working_dir": ".",
             "project_archetype": project.get("project_archetype"),
             "project_pull_policy_overrides": project.get("pull_policy_overrides", []),
             "project_llm_preferences": runtime.project_llm_preferences,
@@ -314,8 +516,10 @@ def _dispatch_selected_work(
         dispatches.append(asdict(dispatch))
 
         if not dispatch.accepted:
+            final_result = dispatch.metadata.get("submission_receipt", {}).get("metadata", {}).get("final_result")
             raw_results.append(
-                {
+                final_result
+                or {
                     "execution_id": dispatch.execution_id,
                     "work_package_id": wp.work_package_id,
                     "cycle_id": runtime.cycle_id,
@@ -327,8 +531,10 @@ def _dispatch_selected_work(
             continue
 
         runtime.running_queue.append(wp.work_package_id)
+        final_result = dispatch.metadata.get("submission_receipt", {}).get("metadata", {}).get("final_result")
         raw_results.append(
-            {
+            final_result
+            or {
                 "execution_id": dispatch.execution_id,
                 "work_package_id": wp.work_package_id,
                 "cycle_id": runtime.cycle_id,
@@ -695,6 +901,12 @@ def run_cycle(
     work_packages = _work_packages_from_snapshot(updated_snapshot)
     seams = _seams_from_snapshot(updated_snapshot)
     selected = select_workset(work_packages, seams, limit=3)
+    if not selected and _maybe_seed_follow_up_work(updated_snapshot, runtime):
+        work_packages = _work_packages_from_snapshot(updated_snapshot)
+        selected = select_workset(work_packages, seams, limit=3)
+    if not selected and _maybe_seed_existing_repo_implementation_work(updated_snapshot, runtime):
+        work_packages = _work_packages_from_snapshot(updated_snapshot)
+        selected = select_workset(work_packages, seams, limit=3)
     knowledge_ids = _select_knowledge_ids(updated_snapshot, runtime, selected)
     runtime.selected_knowledge = knowledge_ids
     project = _project_for_runtime(updated_snapshot, runtime) or {}

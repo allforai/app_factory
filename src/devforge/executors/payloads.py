@@ -5,6 +5,29 @@ from __future__ import annotations
 from typing import Any
 
 
+def _result_contract() -> dict[str, Any]:
+    return {
+        "format": "json",
+        "required_keys": ["summary"],
+        "optional_keys": [
+            "artifacts_created",
+            "artifacts_modified",
+            "tests_run",
+            "findings",
+            "handoff_notes",
+            "raw_output_ref",
+        ],
+        "finding_shape": {
+            "id": "string",
+            "summary": "string",
+            "severity": "string",
+            "source": "string",
+            "details": "string?",
+            "related_artifacts": ["string"],
+        },
+    }
+
+
 def format_executor_payload(executor_name: str, runtime_context: dict[str, Any]) -> dict[str, Any]:
     """Format runtime context into an executor-specific payload."""
     packet = runtime_context.get("node_knowledge_packet", {})
@@ -23,6 +46,7 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
                 "acceptance": packet.get("acceptance", []),
                 "references": packet.get("deep_refs", []),
                 "pull_manifest": pull_manifest,
+                "result_contract": _result_contract(),
             }
         if role_id == "qa_engineer":
             return {
@@ -33,6 +57,7 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
                 "risk_focus": ["regression", "edge_cases", "seams"],
                 "references": packet.get("deep_refs", []),
                 "pull_manifest": pull_manifest,
+                "result_contract": _result_contract(),
             }
         return {
             "style": "design_heavy",
@@ -42,6 +67,7 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
             "acceptance": packet.get("acceptance", []),
             "references": packet.get("deep_refs", []),
             "pull_manifest": pull_manifest,
+            "result_contract": _result_contract(),
         }
 
     if executor_name == "codex":
@@ -54,6 +80,7 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
                 "knowledge_refs": packet.get("deep_refs", []),
                 "focus_summary": focus,
                 "pull_manifest": pull_manifest,
+                "result_contract": _result_contract(),
             }
         if role_id == "technical_architect":
             return {
@@ -64,6 +91,7 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
                 "knowledge_refs": packet.get("deep_refs", []),
                 "focus_summary": focus,
                 "pull_manifest": pull_manifest,
+                "result_contract": _result_contract(),
             }
         return {
             "style": "execution_heavy",
@@ -73,6 +101,7 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
             "knowledge_refs": packet.get("deep_refs", []),
             "focus_summary": focus,
             "pull_manifest": pull_manifest,
+            "result_contract": _result_contract(),
         }
 
     return {

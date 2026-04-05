@@ -8,6 +8,9 @@ It is applied on top of the base snapshot before the orchestration cycle runs.
 
 ## Supported Keys
 
+Most users should not need to edit these fields manually on day one. `devforge init`
+now asks for higher-level setup choices and writes these values for you.
+
 At the project level:
 
 ```json

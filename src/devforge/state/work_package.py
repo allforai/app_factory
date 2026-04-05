@@ -49,6 +49,12 @@ class WorkPackage:
     handoff_notes: list[str] = field(default_factory=list)
     last_execution_ref: dict[str, str | None] = field(default_factory=dict)
     execution_history: list[dict[str, str | None]] = field(default_factory=list)
+    retry_action: str | None = None
+    retry_reason: str | None = None
+    retry_source: str | None = None
+    retry_confidence: float | None = None
+    retry_notes: list[str] = field(default_factory=list)
+    replan_required: bool = False
     attempt_count: int = 0
     max_attempts: int = 3
     created_at: str | None = None

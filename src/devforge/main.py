@@ -7,10 +7,11 @@ import json
 from pathlib import Path
 import re
 import sys
-from typing import Any
+from typing import Any, Callable
 
 from devforge.config import apply_project_config, load_project_config, maybe_apply_fixture_project_config
 from devforge.graph.builder import run_cycle
+from devforge.llm.config_loader import load_llm_config
 from devforge.onboarding import read_readme_excerpt
 from devforge.persistence import JsonStore, build_local_workspace_persistence
 from devforge.topology import WorkspaceCandidate, default_live_llm_preferences, dump_decision
@@ -29,6 +30,10 @@ WORKSPACE_PROJECT_MARKERS = (
     "Podfile",
     ".git",
 )
+
+LLM_SETUP_PRESETS = {"auto", "offline", "live"}
+KNOWLEDGE_SETUP_PRESETS = {"balanced", "implementation", "testing"}
+PULL_SETUP_PRESETS = {"standard", "lean", "rich"}
 
 
 def run_fixture_cycle(fixture_name: str) -> dict[str, Any]:
@@ -53,6 +58,12 @@ def run_snapshot_cycle(
         snapshot = apply_project_config(snapshot, load_project_config(project_config_path))
     persistence = build_local_workspace_persistence(persistence_root) if persistence_root else None
     return run_cycle(snapshot, persistence=persistence)
+
+
+def _write_snapshot_file(path: str | Path, snapshot: dict[str, Any]) -> None:
+    """Persist a snapshot JSON file in the standard pretty-printed format."""
+    snapshot_path = Path(path)
+    snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _slugify(value: str, *, fallback: str) -> str:
@@ -550,34 +561,163 @@ def _build_workspace_snapshot(
 
 def _build_init_project_config(project_id: str) -> dict[str, Any]:
     """Build a starter project config alongside the generated snapshot."""
+    return _build_project_config_for_ids([project_id])
+
+
+def _build_project_config_for_ids(
+    project_ids: list[str],
+    *,
+    llm_preferences: dict[str, Any] | None = None,
+    knowledge_preferences: dict[str, Any] | None = None,
+    pull_policy_overrides: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build starter project config for one or more projects."""
     return {
         "projects": {
             project_id: {
-                "llm_preferences": {},
+                "llm_preferences": dict(llm_preferences or {}),
                 "knowledge_preferences": {
-                    "preferred_ids": [],
-                    "excluded_ids": [],
+                    "preferred_ids": list((knowledge_preferences or {}).get("preferred_ids", [])),
+                    "excluded_ids": list((knowledge_preferences or {}).get("excluded_ids", [])),
                 },
-                "pull_policy_overrides": [],
+                "pull_policy_overrides": [dict(item) for item in (pull_policy_overrides or [])],
             }
+            for project_id in project_ids
         }
     }
 
 
 def _build_workspace_project_config(project_ids: list[str]) -> dict[str, Any]:
     """Build starter project config for all discovered workspace projects."""
+    return _build_project_config_for_ids(project_ids)
+
+
+def _resolve_llm_setup_preferences(root: Path, preset: str) -> dict[str, Any]:
+    """Map a user-facing LLM setup preset to project config preferences."""
+    if preset not in LLM_SETUP_PRESETS:
+        raise ValueError(f"unsupported llm setup preset: {preset}")
+    if preset == "offline":
+        return {}
+    if preset == "live":
+        return default_live_llm_preferences(root)
+    return load_llm_config(search_dir=root)
+
+
+def _resolve_knowledge_setup_preferences(preset: str) -> dict[str, Any]:
+    """Map a user-facing focus preset to knowledge preferences."""
+    if preset not in KNOWLEDGE_SETUP_PRESETS:
+        raise ValueError(f"unsupported knowledge setup preset: {preset}")
+    if preset == "implementation":
+        return {"preferred_ids": ["phase.implementation"], "excluded_ids": []}
+    if preset == "testing":
+        return {"preferred_ids": ["phase.testing"], "excluded_ids": []}
+    return {"preferred_ids": [], "excluded_ids": []}
+
+
+def _resolve_pull_setup_preferences(preset: str) -> list[dict[str, Any]]:
+    """Map a user-facing context size preset to pull policy overrides."""
+    if preset not in PULL_SETUP_PRESETS:
+        raise ValueError(f"unsupported pull setup preset: {preset}")
+    if preset == "lean":
+        return [
+            {"executor": "codex", "mode": "summary", "budget": 900},
+            {"executor": "claude_code", "mode": "summary", "budget": 900},
+        ]
+    if preset == "rich":
+        return [
+            {"executor": "codex", "mode": "full", "budget": 4000},
+            {"executor": "claude_code", "mode": "full", "budget": 4000},
+        ]
+    return []
+
+
+def _prompt_choice(
+    title: str,
+    *,
+    default: str,
+    options: list[tuple[str, str]],
+    input_fn: Callable[[str], str] | None = None,
+    output_fn: Callable[[str], None] | None = None,
+) -> str:
+    """Prompt for a simple numbered choice and return the selected key."""
+    input_fn = input_fn or input
+    output_fn = output_fn or print
+    indexed = {str(index): key for index, (key, _label) in enumerate(options, start=1)}
+    default_index = next(index for index, (key, _label) in enumerate(options, start=1) if key == default)
+    output_fn(title)
+    for index, (_key, label) in enumerate(options, start=1):
+        marker = "default" if index == default_index else ""
+        suffix = f" [{marker}]" if marker else ""
+        output_fn(f"  {index}. {label}{suffix}")
+    try:
+        raw = input_fn(f"Choose 1-{len(options)} [{default_index}]: ").strip()
+    except EOFError:
+        return default
+    except KeyboardInterrupt:
+        output_fn("")
+        return default
+    if not raw:
+        return default
+    if raw in indexed:
+        return indexed[raw]
+    lowered = raw.lower()
+    for key, _label in options:
+        if lowered == key:
+            return key
+    return default
+
+
+def _collect_guided_init_preferences(
+    root: Path,
+    *,
+    input_fn: Callable[[str], str] | None = None,
+    output_fn: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Collect user-facing setup choices and map them to project config fields."""
+    input_fn = input_fn or input
+    output_fn = output_fn or (lambda message: print(message, file=sys.stderr))
+    output_fn("DevForge setup")
+    output_fn("Choose how DevForge should run by default. Press Enter to keep the default.")
+    llm_preset = _prompt_choice(
+        "AI mode:",
+        default="auto",
+        options=[
+            ("auto", "Auto: use llm.yaml when present, otherwise stay offline"),
+            ("live", "Live AI: prefer live provider config for planning and routing"),
+            ("offline", "Offline: avoid live model calls and use mock routing"),
+        ],
+        input_fn=input_fn,
+        output_fn=output_fn,
+    )
+    knowledge_preset = _prompt_choice(
+        "Default focus:",
+        default="balanced",
+        options=[
+            ("balanced", "Balanced: let DevForge decide per phase"),
+            ("implementation", "Implementation-heavy: bias toward build work"),
+            ("testing", "Testing-heavy: bias toward verification work"),
+        ],
+        input_fn=input_fn,
+        output_fn=output_fn,
+    )
+    pull_preset = _prompt_choice(
+        "Context size:",
+        default="standard",
+        options=[
+            ("standard", "Standard: use built-in pull policy defaults"),
+            ("lean", "Lean: pull less context for faster, cheaper runs"),
+            ("rich", "Rich: pull more context for deeper runs"),
+        ],
+        input_fn=input_fn,
+        output_fn=output_fn,
+    )
     return {
-        "projects": {
-            project_id: {
-                "llm_preferences": {},
-                "knowledge_preferences": {
-                    "preferred_ids": [],
-                    "excluded_ids": [],
-                },
-                "pull_policy_overrides": [],
-            }
-            for project_id in project_ids
-        }
+        "llm_preset": llm_preset,
+        "knowledge_preset": knowledge_preset,
+        "pull_preset": pull_preset,
+        "llm_preferences": _resolve_llm_setup_preferences(root, llm_preset),
+        "knowledge_preferences": _resolve_knowledge_setup_preferences(knowledge_preset),
+        "pull_policy_overrides": _resolve_pull_setup_preferences(pull_preset),
     }
 
 
@@ -587,6 +727,7 @@ def initialize_project(
     force: bool = False,
     project_name: str | None = None,
     workspace_mode: bool = False,
+    guided_preferences: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Initialize DevForge scaffolding inside the local runtime directory."""
     root_path = Path(root).resolve()
@@ -612,13 +753,21 @@ def initialize_project(
     )
     primary_project_id = snapshot["projects"][0]["project_id"]
     project_config = (
-        _build_workspace_project_config(
+        _build_project_config_for_ids(
             [item["project_id"] for item in snapshot["projects"]]
-            if snapshot.get("workspace_modeling", {}).get("mode") == "workspace"
-            else [primary_project_id]
+            if workspace_mode and snapshot.get("workspace_modeling", {}).get("mode") == "workspace"
+            else [primary_project_id],
+            llm_preferences=guided_preferences.get("llm_preferences") if guided_preferences else None,
+            knowledge_preferences=guided_preferences.get("knowledge_preferences") if guided_preferences else None,
+            pull_policy_overrides=guided_preferences.get("pull_policy_overrides") if guided_preferences else None,
         )
         if workspace_mode
-        else _build_init_project_config(primary_project_id)
+        else _build_project_config_for_ids(
+            [primary_project_id],
+            llm_preferences=guided_preferences.get("llm_preferences") if guided_preferences else None,
+            knowledge_preferences=guided_preferences.get("knowledge_preferences") if guided_preferences else None,
+            pull_policy_overrides=guided_preferences.get("pull_policy_overrides") if guided_preferences else None,
+        )
     )
 
     snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -637,6 +786,11 @@ def initialize_project(
         "mode": snapshot.get("workspace_modeling", {}).get("mode", "workspace") if workspace_mode else "project",
         "discovered_projects": [item["project_id"] for item in _discover_workspace_projects(root_path)] if workspace_mode else [],
         "workspace_modeling": snapshot.get("workspace_modeling"),
+        "setup_profile": {
+            "llm": guided_preferences.get("llm_preset", "default") if guided_preferences else "default",
+            "focus": guided_preferences.get("knowledge_preset", "balanced") if guided_preferences else "balanced",
+            "context": guided_preferences.get("pull_preset", "standard") if guided_preferences else "standard",
+        },
     }
 
 
@@ -653,6 +807,8 @@ def build_cli_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--force", action="store_true", help="Overwrite generated files when they already exist.")
     init_parser.add_argument("--name", help="Optional project display name. Defaults to the current directory name.")
     init_parser.add_argument("--workspace", action="store_true", help="Initialize the current directory as a multi-project workspace guardian entry.")
+    init_parser.add_argument("--guided", action="store_true", help="Always prompt for beginner-friendly setup choices.")
+    init_parser.add_argument("--no-prompt", action="store_true", help="Skip interactive setup prompts and write plain defaults.")
 
     snapshot_parser = subparsers.add_parser("snapshot", help="Run a snapshot JSON file.")
     snapshot_parser.add_argument("path", help="Path to a snapshot JSON file.")
@@ -676,8 +832,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "fixture":
         result = run_fixture_cycle(args.name)
     elif args.command == "init":
+        should_prompt = args.guided or (not args.no_prompt and sys.stdin.isatty() and sys.stdout.isatty())
+        guided_preferences = _collect_guided_init_preferences(Path.cwd()) if should_prompt else None
         try:
-            result = initialize_project(force=args.force, project_name=args.name, workspace_mode=args.workspace)
+            result = initialize_project(
+                force=args.force,
+                project_name=args.name,
+                workspace_mode=args.workspace,
+                guided_preferences=guided_preferences,
+            )
         except FileExistsError as exc:
             parser.error(str(exc))
             return 2
@@ -690,6 +853,7 @@ def main(argv: list[str] | None = None) -> int:
             persistence_root=args.persistence_root,
         )
         snapshot_path = Path(args.path).resolve()
+        _write_snapshot_file(snapshot_path, result["snapshot"])
         root_path = snapshot_path.parent.parent if snapshot_path.name == DEFAULT_SNAPSHOT_FILENAME and snapshot_path.parent.name == DEFAULT_RUNTIME_ROOT else Path.cwd()
         runtime = result["runtime"]
         session = SessionState(

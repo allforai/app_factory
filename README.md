@@ -34,6 +34,14 @@ devforge init
 devforge init --workspace
 ```
 
+在交互终端里，`init` 会继续询问几个普通用户能理解的选项：
+
+- AI 模式
+- 默认关注重点
+- 上下文大小
+
+这些选择会自动写成底层的 `llm_preferences`、`knowledge_preferences` 和 `pull_policy_overrides`，不需要用户自己理解字段名。
+
 默认会把文件都放进 `./.devforge/`：
 
 - `./.devforge/devforge.snapshot.json`
