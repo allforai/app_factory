@@ -5,7 +5,16 @@ from __future__ import annotations
 from dataclasses import asdict
 from copy import deepcopy
 import json
-from typing import Any
+from typing import Any, TypedDict
+
+
+class CycleResult(TypedDict):
+    runtime: dict[str, Any]
+    selected_work_packages: list[str]
+    dispatches: list[dict[str, Any]]
+    results: list[dict[str, Any]]
+    events: list[dict[str, Any]]
+    snapshot: dict[str, Any]
 
 from devforge.context import ContextBroker
 from devforge.executors import get_executor_adapter
@@ -109,6 +118,64 @@ def _maybe_seed_follow_up_work(snapshot: dict[str, Any], runtime: RuntimeState) 
         }
     )
     project.setdefault("work_package_ids", []).append("wp-initial-work-plan")
+    return True
+
+
+def _maybe_seed_failed_onboarding_acceptance(snapshot: dict[str, Any], runtime: RuntimeState) -> bool:
+    """Seed a local acceptance closeout when initial onboarding exhausts live executors."""
+    project = _project_for_runtime(snapshot, runtime)
+    if project is None or project.get("kind") != "existing_repo":
+        return False
+
+    onboarding = _work_package_record(snapshot, "wp-repo-onboarding")
+    if onboarding is None or onboarding.get("status") != "failed" or onboarding.get("retry_action") != "final_fail":
+        return False
+
+    acceptance_id = "wp-bootstrap-acceptance"
+    if _work_package_record(snapshot, acceptance_id) is not None:
+        return False
+
+    snapshot.setdefault("work_packages", []).append(
+        {
+            "work_package_id": acceptance_id,
+            "initiative_id": onboarding.get("initiative_id"),
+            "project_id": project["project_id"],
+            "phase": "acceptance",
+            "domain": "core",
+            "role_id": "integration_owner",
+            "title": "Close failed bootstrap attempt",
+            "goal": "Summarize why repository bootstrap could not complete with live executors and record the next external actions required.",
+            "status": "ready",
+            "priority": 95,
+            "executor": "python",
+            "fallback_executors": [],
+            "inputs": ["wp-repo-onboarding"],
+            "deliverables": [
+                "docs/devforge/bootstrap-acceptance.md",
+            ],
+            "constraints": [
+                "base the closeout on captured executor evidence",
+                "avoid pretending bootstrap completed when external prerequisites are missing",
+            ],
+            "acceptance_criteria": [
+                "bootstrap blockers are captured in a local report",
+                "the report identifies the next external actions needed to retry bootstrap",
+            ],
+            "depends_on": [],
+            "blocks": [],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": list(onboarding.get("handoff_notes", [])),
+            "attempt_count": 0,
+            "max_attempts": 1,
+            "created_at": None,
+            "updated_at": None,
+        }
+    )
+    project.setdefault("work_package_ids", []).append(acceptance_id)
+    project["current_phase"] = "acceptance"
     return True
 
 
@@ -255,6 +322,136 @@ def _maybe_seed_existing_repo_implementation_work(snapshot: dict[str, Any], runt
     return True
 
 
+def _maybe_seed_existing_repo_validation_work(snapshot: dict[str, Any], runtime: RuntimeState) -> bool:
+    """Seed testing and acceptance work after implementation slices are verified."""
+    project = _project_for_runtime(snapshot, runtime)
+    if project is None or project.get("kind") != "existing_repo":
+        return False
+
+    implementation_work = [
+        item
+        for item in snapshot.get("work_packages", [])
+        if item.get("project_id") == project["project_id"] and item.get("phase") == "implementation"
+    ]
+    if not implementation_work or any(item.get("status") != "verified" for item in implementation_work):
+        return False
+
+    seed_ids = [
+        "wp-self-hosting-regression",
+        "wp-self-hosting-acceptance",
+    ]
+    if any(_work_package_record(snapshot, work_package_id) is not None for work_package_id in seed_ids):
+        return False
+
+    implementation_ids = [item["work_package_id"] for item in implementation_work]
+    initiative_id = implementation_work[0].get("initiative_id")
+    new_items = [
+        {
+            "work_package_id": "wp-self-hosting-regression",
+            "initiative_id": initiative_id,
+            "project_id": project["project_id"],
+            "phase": "testing",
+            "domain": "core",
+            "role_id": "qa_engineer",
+            "title": "Run self-hosting regression cycle",
+            "goal": "Verify DevForge can continue its own backlog with a live executor path and durable runtime state.",
+            "status": "ready",
+            "priority": 80,
+            "executor": "codex",
+            "fallback_executors": ["claude_code"],
+            "inputs": implementation_ids,
+            "deliverables": [
+                "docs/devforge/live-self-hosting-report.md",
+                "tests/test_graph_runner.py",
+                "tests/test_executor_payloads.py",
+            ],
+            "constraints": [
+                "exercise the live executor path without regressing stub mode",
+                "capture structured results that can feed the next cycle",
+            ],
+            "acceptance_criteria": [
+                "at least one live continuation cycle dispatches real executor work",
+                "regression coverage reflects the validation path",
+            ],
+            "depends_on": implementation_ids,
+            "blocks": ["wp-self-hosting-acceptance"],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": [],
+            "attempt_count": 0,
+            "max_attempts": 3,
+            "created_at": None,
+            "updated_at": None,
+        },
+        {
+            "work_package_id": "wp-self-hosting-acceptance",
+            "initiative_id": initiative_id,
+            "project_id": project["project_id"],
+            "phase": "acceptance",
+            "domain": "core",
+            "role_id": "integration_owner",
+            "title": "Close self-hosting acceptance gaps",
+            "goal": "Review the self-hosting regression evidence and decide whether the repository is ready for sustained self-development loops.",
+            "status": "ready",
+            "priority": 70,
+            "executor": "claude_code",
+            "fallback_executors": ["python"],
+            "inputs": ["wp-self-hosting-regression"],
+            "deliverables": [
+                "docs/devforge/self-hosting-acceptance.md",
+            ],
+            "constraints": [
+                "base the decision on captured regression evidence",
+                "surface remaining blockers as concrete follow-up work",
+            ],
+            "acceptance_criteria": [
+                "acceptance decision references regression evidence",
+                "remaining blockers are explicit if self-hosting is not yet stable",
+            ],
+            "depends_on": ["wp-self-hosting-regression"],
+            "blocks": [],
+            "related_seams": [],
+            "assumptions": [],
+            "artifacts_created": [],
+            "findings": [],
+            "handoff_notes": [],
+            "attempt_count": 0,
+            "max_attempts": 3,
+            "created_at": None,
+            "updated_at": None,
+        },
+    ]
+    snapshot.setdefault("work_packages", []).extend(new_items)
+    project.setdefault("work_package_ids", []).extend(seed_ids)
+    project["current_phase"] = "testing"
+    return True
+
+
+def _maybe_release_self_hosting_acceptance(snapshot: dict[str, Any], runtime: RuntimeState) -> bool:
+    """Allow acceptance closure after self-hosting regression exhausts executor retries."""
+    project = _project_for_runtime(snapshot, runtime)
+    if project is None or project.get("kind") != "existing_repo":
+        return False
+
+    regression = _work_package_record(snapshot, "wp-self-hosting-regression")
+    acceptance = _work_package_record(snapshot, "wp-self-hosting-acceptance")
+    if regression is None or acceptance is None:
+        return False
+    if regression.get("status") != "failed" or regression.get("retry_action") != "final_fail":
+        return False
+    if acceptance.get("status") != "ready" or not acceptance.get("depends_on"):
+        return False
+
+    acceptance["depends_on"] = []
+    acceptance["executor"] = "python"
+    acceptance["fallback_executors"] = []
+    acceptance.setdefault("handoff_notes", []).extend(list(regression.get("handoff_notes", [])))
+    project["current_phase"] = "acceptance"
+    return True
+
+
 def _select_knowledge_ids(snapshot: dict[str, Any], runtime: RuntimeState, selected: list[WorkPackage]) -> list[str]:
     project = _project_for_runtime(snapshot, runtime)
     if project is None:
@@ -316,6 +513,8 @@ def _build_node_packet(runtime: RuntimeState, selected: list[WorkPackage]) -> di
         acceptance=primary.acceptance_criteria,
     )
     result = asdict(packet)
+    if primary.handoff_notes:
+        result["incoming_handoff_notes"] = list(primary.handoff_notes)
     if primary.attempt_count > 0:
         result["previous_attempts"] = {
             "attempt_count": primary.attempt_count,
@@ -867,7 +1066,7 @@ def run_cycle(
     event_store: EventStore | None = None,
     artifact_store: ArtifactStore | None = None,
     memory_store: MemoryStore | None = None,
-) -> dict[str, Any]:
+) -> CycleResult:
     """Execute one minimal orchestration cycle against a snapshot."""
     persistence = persistence or WorkspacePersistence()
     event_store = event_store or persistence.event_store
@@ -904,7 +1103,16 @@ def run_cycle(
     if not selected and _maybe_seed_follow_up_work(updated_snapshot, runtime):
         work_packages = _work_packages_from_snapshot(updated_snapshot)
         selected = select_workset(work_packages, seams, limit=3)
+    if not selected and _maybe_seed_failed_onboarding_acceptance(updated_snapshot, runtime):
+        work_packages = _work_packages_from_snapshot(updated_snapshot)
+        selected = select_workset(work_packages, seams, limit=3)
     if not selected and _maybe_seed_existing_repo_implementation_work(updated_snapshot, runtime):
+        work_packages = _work_packages_from_snapshot(updated_snapshot)
+        selected = select_workset(work_packages, seams, limit=3)
+    if not selected and _maybe_seed_existing_repo_validation_work(updated_snapshot, runtime):
+        work_packages = _work_packages_from_snapshot(updated_snapshot)
+        selected = select_workset(work_packages, seams, limit=3)
+    if not selected and _maybe_release_self_hosting_acceptance(updated_snapshot, runtime):
         work_packages = _work_packages_from_snapshot(updated_snapshot)
         selected = select_workset(work_packages, seams, limit=3)
     knowledge_ids = _select_knowledge_ids(updated_snapshot, runtime, selected)

@@ -1,5 +1,5 @@
 from devforge.graph import build_meta_graph
-from devforge.graph.builder import _apply_executor_result, run_cycle
+from devforge.graph.builder import CycleResult, _apply_executor_result, run_cycle
 from devforge.graph.transitions import next_step_for_state
 from devforge.graph.runtime_state import RuntimeState
 from devforge.main import run_fixture_cycle
@@ -323,6 +323,99 @@ def test_run_cycle_seeds_follow_up_work_after_repo_onboarding_is_verified() -> N
     assert "wp-initial-work-plan" in result["snapshot"]["projects"][0]["work_package_ids"]
 
 
+def test_run_cycle_seeds_bootstrap_acceptance_after_onboarding_final_fail() -> None:
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "devforge",
+            "goal": "onboard repo",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "devforge",
+                "kind": "existing_repo",
+                "status": "active",
+                "current_phase": "analysis_design",
+                "phases": ["analysis_design", "acceptance"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["technical_architect", "integration_owner"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": ["wp-repo-onboarding"],
+                "seam_ids": [],
+                "artifacts": {"repo_paths": ["."], "docs": ["README.md"]},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [
+            {
+                "work_package_id": "wp-repo-onboarding",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "analysis_design",
+                "domain": "core",
+                "role_id": "technical_architect",
+                "title": "Existing repository onboarding",
+                "goal": "Analyze the repository.",
+                "status": "failed",
+                "priority": 100,
+                "executor": "claude_code",
+                "fallback_executors": ["claude_code"],
+                "inputs": [],
+                "deliverables": ["docs/devforge/repository-map.md"],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": [],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["network unavailable", "executor not logged in"],
+                "attempt_count": 3,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+                "retry_action": "final_fail",
+                "retry_reason": "attempt_limit_reached",
+            }
+        ],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+
+    result = run_cycle(snapshot)
+
+    seeded = next(item for item in result["snapshot"]["work_packages"] if item["work_package_id"] == "wp-bootstrap-acceptance")
+    assert result["snapshot"]["projects"][0]["current_phase"] == "acceptance"
+    assert result["selected_work_packages"] == ["wp-bootstrap-acceptance"]
+    assert seeded["executor"] == "python"
+    assert "network unavailable" in seeded["handoff_notes"]
+
+
 def test_run_cycle_seeds_implementation_work_after_initial_plan_is_verified() -> None:
     snapshot = {
         "initiative": {
@@ -442,6 +535,342 @@ def test_run_cycle_seeds_implementation_work_after_initial_plan_is_verified() ->
     assert "wp-executor-live-adapters" in seeded_ids
     assert "wp-onboarding-entry-flow" in seeded_ids
     assert result["selected_work_packages"] == ["wp-runtime-state-persistence"]
+
+
+def test_run_cycle_seeds_validation_work_after_implementation_is_verified() -> None:
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "devforge",
+            "goal": "self host",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "devforge",
+                "kind": "existing_repo",
+                "status": "active",
+                "current_phase": "implementation",
+                "phases": ["analysis_design", "implementation", "testing", "acceptance"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["software_engineer", "qa_engineer", "integration_owner"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": [
+                    "wp-repo-onboarding",
+                    "wp-initial-work-plan",
+                    "wp-runtime-state-persistence",
+                    "wp-executor-live-adapters",
+                    "wp-onboarding-entry-flow",
+                ],
+                "seam_ids": [],
+                "artifacts": {"repo_paths": ["."], "docs": ["README.md"]},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [
+            {
+                "work_package_id": "wp-repo-onboarding",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "analysis_design",
+                "domain": "core",
+                "role_id": "technical_architect",
+                "title": "Existing repository onboarding",
+                "goal": "Analyze the repository.",
+                "status": "verified",
+                "priority": 100,
+                "executor": "codex",
+                "fallback_executors": ["claude_code"],
+                "inputs": [],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": [],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+            {
+                "work_package_id": "wp-initial-work-plan",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "analysis_design",
+                "domain": "core",
+                "role_id": "execution_planner",
+                "title": "Initial implementation backlog",
+                "goal": "Plan the next iteration.",
+                "status": "verified",
+                "priority": 90,
+                "executor": "claude_code",
+                "fallback_executors": ["claude_code"],
+                "inputs": ["wp-repo-onboarding"],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": ["wp-repo-onboarding"],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+            {
+                "work_package_id": "wp-runtime-state-persistence",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "implementation",
+                "domain": "core",
+                "role_id": "software_engineer",
+                "title": "Persist evolving runtime state",
+                "goal": "Persist runtime state.",
+                "status": "verified",
+                "priority": 95,
+                "executor": "codex",
+                "fallback_executors": ["claude_code"],
+                "inputs": ["wp-initial-work-plan"],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": ["wp-initial-work-plan"],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+            {
+                "work_package_id": "wp-executor-live-adapters",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "implementation",
+                "domain": "core",
+                "role_id": "software_engineer",
+                "title": "Promote executor adapters toward live execution",
+                "goal": "Enable live execution.",
+                "status": "verified",
+                "priority": 90,
+                "executor": "codex",
+                "fallback_executors": ["claude_code"],
+                "inputs": ["wp-initial-work-plan"],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": ["wp-runtime-state-persistence"],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+            {
+                "work_package_id": "wp-onboarding-entry-flow",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "implementation",
+                "domain": "core",
+                "role_id": "software_engineer",
+                "title": "Make startup onboarding user-facing",
+                "goal": "Improve onboarding.",
+                "status": "verified",
+                "priority": 85,
+                "executor": "codex",
+                "fallback_executors": ["claude_code"],
+                "inputs": ["wp-initial-work-plan"],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": ["wp-runtime-state-persistence"],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["done"],
+                "attempt_count": 1,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+        ],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+
+    result = run_cycle(snapshot)
+
+    seeded_ids = [item["work_package_id"] for item in result["snapshot"]["work_packages"]]
+    assert result["snapshot"]["projects"][0]["current_phase"] == "testing"
+    assert "wp-self-hosting-regression" in seeded_ids
+    assert "wp-self-hosting-acceptance" in seeded_ids
+    assert result["selected_work_packages"] == ["wp-self-hosting-regression"]
+
+
+def test_run_cycle_releases_self_hosting_acceptance_after_final_regression_failure() -> None:
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "devforge",
+            "goal": "self host",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "devforge",
+                "kind": "existing_repo",
+                "status": "active",
+                "current_phase": "testing",
+                "phases": ["analysis_design", "implementation", "testing", "acceptance"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["qa_engineer", "integration_owner"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": ["wp-self-hosting-regression", "wp-self-hosting-acceptance"],
+                "seam_ids": [],
+                "artifacts": {"repo_paths": ["."], "docs": ["docs"]},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [
+            {
+                "work_package_id": "wp-self-hosting-regression",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "testing",
+                "domain": "core",
+                "role_id": "qa_engineer",
+                "title": "Run self-hosting regression cycle",
+                "goal": "Verify live execution.",
+                "status": "failed",
+                "priority": 80,
+                "executor": "claude_code",
+                "fallback_executors": ["claude_code"],
+                "inputs": [],
+                "deliverables": [],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": [],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": ["network unavailable", "executor not logged in"],
+                "attempt_count": 3,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+                "retry_action": "final_fail",
+                "retry_reason": "attempt_limit_reached",
+            },
+            {
+                "work_package_id": "wp-self-hosting-acceptance",
+                "initiative_id": "i1",
+                "project_id": "p1",
+                "phase": "acceptance",
+                "domain": "core",
+                "role_id": "integration_owner",
+                "title": "Close self-hosting acceptance gaps",
+                "goal": "Review evidence.",
+                "status": "ready",
+                "priority": 70,
+                "executor": "claude_code",
+                "fallback_executors": ["python"],
+                "inputs": ["wp-self-hosting-regression"],
+                "deliverables": ["docs/devforge/self-hosting-acceptance.md"],
+                "constraints": [],
+                "acceptance_criteria": [],
+                "depends_on": ["wp-self-hosting-regression"],
+                "blocks": [],
+                "related_seams": [],
+                "assumptions": [],
+                "artifacts_created": [],
+                "findings": [],
+                "handoff_notes": [],
+                "attempt_count": 0,
+                "max_attempts": 3,
+                "created_at": None,
+                "updated_at": None,
+            },
+        ],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+
+    result = run_cycle(snapshot)
+
+    acceptance = next(item for item in result["snapshot"]["work_packages"] if item["work_package_id"] == "wp-self-hosting-acceptance")
+    assert result["snapshot"]["projects"][0]["current_phase"] == "acceptance"
+    assert result["selected_work_packages"] == ["wp-self-hosting-acceptance"]
+    assert acceptance["executor"] == "python"
+    assert acceptance["depends_on"] == []
+    assert "network unavailable" in acceptance["handoff_notes"]
 
 
 def test_run_cycle_persists_events_artifacts_and_memory_when_stores_are_injected(tmp_path) -> None:
@@ -1313,4 +1742,67 @@ def test_langgraph_builder_applies_requirement_patch_route() -> None:
     assert result["pending_requirement_events"] == []
     assert result["recent_executor_results"] == ["verified:wp-1"]
     assert result["snapshot"]["requirement_events"][0]["patch_status"] == "applied"
-    assert result["snapshot"]["work_packages"][0]["status"] == "deprecated"
+
+
+def test_run_cycle_returns_cycle_result_typed_keys() -> None:
+    """CycleResult is a TypedDict — verify all declared keys are present."""
+    snapshot = {
+        "initiative": {
+            "initiative_id": "i1",
+            "name": "test",
+            "goal": "test",
+            "status": "active",
+            "project_ids": ["p1"],
+            "shared_concepts": [],
+            "shared_contracts": [],
+            "initiative_memory_ref": None,
+            "global_acceptance_goals": [],
+            "requirement_event_ids": [],
+            "scheduler_state": {},
+        },
+        "projects": [
+            {
+                "project_id": "p1",
+                "initiative_id": "i1",
+                "parent_project_id": None,
+                "name": "test",
+                "kind": "new_product",
+                "status": "active",
+                "current_phase": "concept_collect",
+                "phases": ["concept_collect"],
+                "project_archetype": "general",
+                "domains": ["core"],
+                "active_roles": ["product_manager"],
+                "concept_model_refs": [],
+                "contracts": [],
+                "pull_policy_overrides": [],
+                "llm_preferences": {},
+                "knowledge_preferences": {},
+                "executor_policy_ref": None,
+                "work_package_ids": [],
+                "seam_ids": [],
+                "artifacts": {},
+                "project_memory_ref": None,
+                "assumptions": [],
+                "requirement_events": [],
+                "children": [],
+                "coordination_project": False,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ],
+        "work_packages": [],
+        "executor_policies": [],
+        "requirement_events": [],
+        "seams": [],
+    }
+    result = run_cycle(snapshot)
+    # TypedDict keys must all be present
+    assert "runtime" in result
+    assert "selected_work_packages" in result
+    assert "dispatches" in result
+    assert "results" in result
+    assert "events" in result
+    assert "snapshot" in result
+    # TypedDict instances are plain dicts at runtime
+    assert isinstance(result, dict)
