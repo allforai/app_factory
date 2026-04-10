@@ -1,8 +1,10 @@
+import inspect
 import json
 import builtins
 from pathlib import Path
 
-from devforge.main import main, run_snapshot_cycle
+from devforge.graph.builder import CycleResult
+from devforge.main import main, run_fixture_cycle, run_snapshot_cycle
 from devforge.llm import MockLLMClient
 from devforge.topology import WorkspaceCandidate, classify_workspace_candidates
 
@@ -440,3 +442,13 @@ def test_workspace_modeling_prefers_single_business_project_for_surface_like_can
 
     assert decision.mode == "single_project"
     assert {item["surface_id"] for item in decision.surfaces} == {"flydict-admin", "flydict-api", "flydict-ios"}
+
+
+def test_run_fixture_cycle_annotated_cycle_result() -> None:
+    hints = inspect.get_annotations(run_fixture_cycle, eval_str=True)
+    assert hints.get("return") is CycleResult
+
+
+def test_run_snapshot_cycle_annotated_cycle_result() -> None:
+    hints = inspect.get_annotations(run_snapshot_cycle, eval_str=True)
+    assert hints.get("return") is CycleResult

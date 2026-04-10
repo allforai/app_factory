@@ -10,7 +10,7 @@ import sys
 from typing import Any, Callable
 
 from devforge.config import apply_project_config, load_project_config, maybe_apply_fixture_project_config
-from devforge.graph.builder import run_cycle
+from devforge.graph.builder import CycleResult, run_cycle
 from devforge.llm.config_loader import load_llm_config
 from devforge.onboarding import read_readme_excerpt
 from devforge.persistence import JsonStore, build_local_workspace_persistence
@@ -36,7 +36,7 @@ KNOWLEDGE_SETUP_PRESETS = {"balanced", "implementation", "testing"}
 PULL_SETUP_PRESETS = {"standard", "lean", "rich"}
 
 
-def run_fixture_cycle(fixture_name: str) -> dict[str, Any]:
+def run_fixture_cycle(fixture_name: str) -> CycleResult:
     """Load a fixture snapshot and run one minimal orchestration cycle."""
     fixture_root = Path(__file__).resolve().parent / "fixtures"
     store = JsonStore(fixture_root)
@@ -50,7 +50,7 @@ def run_snapshot_cycle(
     *,
     project_config_path: str | Path | None = None,
     persistence_root: str | Path | None = None,
-) -> dict[str, Any]:
+) -> CycleResult:
     """Run one orchestration cycle from an arbitrary snapshot file."""
     snapshot_path = Path(snapshot_path)
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
