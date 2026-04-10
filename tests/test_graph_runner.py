@@ -1742,6 +1742,7 @@ def test_langgraph_builder_applies_requirement_patch_route() -> None:
     assert result["pending_requirement_events"] == []
     assert result["recent_executor_results"] == ["verified:wp-1"]
     assert result["snapshot"]["requirement_events"][0]["patch_status"] == "applied"
+    assert result["snapshot"]["work_packages"][0]["status"] == "deprecated"
 
 
 def test_run_cycle_returns_cycle_result_typed_keys() -> None:
