@@ -386,21 +386,69 @@ Workflow: 逆向分析 DevForge 项目  [wf-逆向分析-20260411]
 
 ---
 
+## 非交互执行策略
+
+节点执行过程中的人工介入是最大的可靠性风险。引擎通过两层机制消除它：
+
+### 方案 A：非交互 prompt 规范 + 超时保底
+
+**每个节点的 prompt 末尾统一追加以下后缀**（`_NON_INTERACTIVE_SUFFIX` 常量）：
+
+```
+---
+执行约束（必须遵守）：
+- 直接完成任务，不要询问任何确认或补充信息
+- 若信息不足，根据已有代码和上下文做出最佳判断并继续
+- 不要暂停等待用户输入
+- 不要提问，不要要求审查
+```
+
+**超时机制**：`subprocess.run(..., timeout=300)`（5分钟），超时捕获 `subprocess.TimeoutExpired`，节点标记 failed，`last_error = "executor timeout after 300s"`
+
+**执行器参数**：
+- codex：`["codex", "exec", "--full-auto", "--cd", str(root), prompt + suffix]`
+- claude_code：`["claude", "--print", prompt + suffix]`（`--print` 本身即非交互模式）
+
+### 方案 B：Planner 节点预埋完整上下文
+
+**核心原则：执行节点的 goal 必须是自包含的 — 执行器无需额外信息即可完成任务。**
+
+Planner 节点的 goal 里包含以下约束（写入 `nodes/planner.json`）：
+
+```
+分析目标，制定执行计划。
+
+要求：为每个子节点编写自包含的 goal，即：
+- goal 中直接说明关键参数、路径、输出格式
+- 不依赖执行器自行发现或询问的信息
+- 示例（好）："扫描 src/devforge/ 目录，输出模块列表到 .devforge/artifacts/modules.json，格式: {modules: [{name, path, description}]}"
+- 示例（差）："扫描代码库"（信息不足，执行器可能需要确认路径或格式）
+
+输出格式（stdout JSON）：
+{"nodes": [...], "summary": "..."}
+```
+
+**效果**：Planner 输出的每个子节点 goal 已经包含执行所需的全部信息，加上方案 A 的 suffix，执行器不再有理由暂停交互。
+
+---
+
 ## 执行器 I/O 契约
 
 ### 普通节点
 
-- **输入**：`subprocess.run(cmd, capture_output=True, text=True)`
+- **输入**：`subprocess.run(cmd, capture_output=True, text=True, timeout=300)`
   - codex：`["codex", "exec", "--full-auto", "--cd", str(root), prompt]`
   - claude_code：`["claude", "--print", prompt]`
-  - `prompt` = `node.goal + "\n\n---\n\n" + knowledge_content`（knowledge 为空则只有 goal）
+  - `prompt` = `node.goal + "\n\n---\n\n" + knowledge_content + "\n\n" + _NON_INTERACTIVE_SUFFIX`（knowledge 为空则省略 knowledge 部分）
 - **成功判定**：`returncode == 0`
 - **失败时**：`last_error = (stdout or stderr)[:500]`
+- **超时**：捕获 `subprocess.TimeoutExpired`，`last_error = "executor timeout after 300s"`，节点标记 failed
 - **执行器不可用**（命令未找到）：捕获 `FileNotFoundError`，`last_error = "executor not found: <cmd>"`，节点标记 failed
 
 ### Planning 节点
 
-- **输入**：同上，prompt 由 `node.goal + knowledge` 构成，知识文件应包含 Planner 的输出格式说明
+- **输入**：同上，prompt 由 `node.goal + knowledge + _NON_INTERACTIVE_SUFFIX` 构成
+  - `node.goal` 中包含对 Planner 输出格式和"自包含 goal"的要求（见非交互执行策略 · 方案 B）
 - **成功判定**：`returncode == 0` 且 stdout 可解析为合法 `PlannerOutput` JSON
 - **stdout 格式**：
   ```json
@@ -409,8 +457,8 @@ Workflow: 逆向分析 DevForge 项目  [wf-逆向分析-20260411]
       {
         "id": "discover",
         "capability": "discovery",
-        "goal": "...",
-        "exit_artifacts": ["..."],
+        "goal": "扫描 src/ 目录，将模块列表输出到 .devforge/artifacts/modules.json，格式：{modules:[{name,path}]}",
+        "exit_artifacts": [".devforge/artifacts/modules.json"],
         "knowledge_refs": [],
         "executor": "codex",
         "mode": null
@@ -460,6 +508,7 @@ Workflow: 逆向分析 DevForge 项目  [wf-逆向分析-20260411]
 | active workflow 的 manifest 文件丢失 | `run_one_cycle` 返回 `{"status": "manifest_missing"}` |
 | `transitions.jsonl` 含损坏行 | `read_transitions` 跳过损坏行，返回其余有效记录 |
 | 执行器命令不存在（`FileNotFoundError`） | 节点 `status = failed`，`last_error = "executor not found: codex"` |
+| 执行器超时（`TimeoutExpired`） | 节点 `status = failed`，`last_error = "executor timeout after 300s"` |
 | `attempt_count >= 3` 时节点再次失败 | `workflow_status = failed`，`index.status = failed`，返回 `{"status": "workflow_failed"}` |
 
 ---

@@ -1227,6 +1227,18 @@ def test_run_one_cycle_executor_not_found(tmp_path: Path) -> None:
     assert "executor not found" in (node["last_error"] or "")
 
 
+def test_run_one_cycle_executor_timeout(tmp_path: Path) -> None:
+    import subprocess as _subprocess
+    _setup_workflow(tmp_path)
+    with patch("devforge.workflow.engine._dispatch_node") as mock_dispatch:
+        mock_dispatch.side_effect = _subprocess.TimeoutExpired(cmd="codex", timeout=300)
+        run_one_cycle(tmp_path)
+    manifest = read_manifest(tmp_path, "wf-test-001")
+    node = manifest["nodes"][0]
+    assert node["status"] == "failed"
+    assert "timeout" in (node["last_error"] or "")
+
+
 def test_run_one_cycle_workflow_fails_after_max_attempts(tmp_path: Path) -> None:
     # attempt_count already at 2, so this attempt makes it 3 → workflow_status = failed
     _setup_workflow(tmp_path, attempt_counts={"discover": 2})
@@ -1325,18 +1337,31 @@ def _load_knowledge(refs: list[str], root: Path) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+_NON_INTERACTIVE_SUFFIX = """
+---
+执行约束（必须遵守）：
+- 直接完成任务，不要询问任何确认或补充信息
+- 若信息不足，根据已有代码和上下文做出最佳判断并继续
+- 不要暂停等待用户输入
+- 不要提问，不要要求审查
+"""
+
+_EXECUTOR_TIMEOUT = 300  # seconds
+
+
 def _dispatch_node(node: NodeDefinition, root: Path) -> dict[str, Any]:
-    """Call executor subprocess with node goal + knowledge content."""
+    """Call executor subprocess with node goal + knowledge content + non-interactive suffix."""
     knowledge = _load_knowledge(node.get("knowledge_refs", []), root)
     prompt = node["goal"]
     if knowledge:
-        prompt = f"{prompt}\n\n{knowledge}"
+        prompt = f"{prompt}\n\n---\n\n{knowledge}"
+    prompt = prompt + _NON_INTERACTIVE_SUFFIX
     executor = node.get("executor", "codex")
     if executor == "codex":
         cmd = ["codex", "exec", "--full-auto", "--cd", str(root), prompt]
     else:
         cmd = ["claude", "--print", prompt]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=root)
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=root, timeout=_EXECUTOR_TIMEOUT)
     return {
         "returncode": proc.returncode,
         "output": (proc.stdout or proc.stderr or "").strip(),
@@ -1404,9 +1429,12 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
             result = _dispatch_node(node_def, root)
             returncode = result["returncode"]
             output = result.get("output", "")
-        except FileNotFoundError as exc:
+        except FileNotFoundError:
             returncode = 1
             output = f"executor not found: {node_def.get('executor', 'codex')}"
+        except subprocess.TimeoutExpired:
+            returncode = 1
+            output = f"executor timeout after {_EXECUTOR_TIMEOUT}s"
 
         completed_at = _now()
         entry["last_completed_at"] = completed_at
@@ -1446,7 +1474,7 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
 uv run python -m pytest tests/test_workflow_engine.py -v
 ```
 
-Expected: `20 passed`
+Expected: `21 passed`
 
 - [ ] **Step 5: Run full suite to verify no regressions**
 
@@ -1460,7 +1488,7 @@ Expected: all passing
 
 ```bash
 git add src/devforge/workflow/engine.py tests/test_workflow_engine.py
-git commit -m "feat: implement run_one_cycle with executor dispatch, retry tracking, and failure thresholds"
+git commit -m "feat: implement run_one_cycle with non-interactive dispatch, timeout, and failure thresholds"
 ```
 
 ---
@@ -1685,10 +1713,21 @@ def _init_workflow(root: Path, name: str) -> list[str]:
     wf_id = f"wf-{slug}-{ts}"
     created_at = datetime.now(timezone.utc).isoformat()
 
+    planner_goal = f"""分析目标并制定执行计划: {name}
+
+要求：为每个子节点编写自包含的 goal，即：
+- goal 中直接说明关键参数、路径、输出格式，执行器无需询问即可完成任务
+- 不依赖执行器自行发现或向用户确认的信息
+- 示例（好）："扫描 src/ 目录，将模块列表写入 .devforge/artifacts/modules.json，格式: {{modules:[{{name,path,description}}]}}"
+- 示例（差）："扫描代码库" — 路径和输出格式不明确，执行器可能需要交互确认
+
+输出格式（stdout，必须是合法 JSON，无其他内容）：
+{{"nodes": [{{"id": "...", "capability": "...", "goal": "...", "exit_artifacts": ["..."], "knowledge_refs": [], "executor": "codex", "mode": null, "depends_on": []}}], "summary": "..."}}
+"""
     planner_node: NodeDefinition = {
         "id": "planner",
         "capability": "planning",
-        "goal": f"分析目标并制定执行计划: {name}",
+        "goal": planner_goal,
         "exit_artifacts": [],
         "knowledge_refs": [],
         "executor": "claude_code",
