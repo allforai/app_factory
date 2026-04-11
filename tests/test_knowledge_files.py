@@ -32,3 +32,16 @@ def test_helper_rules_has_coverage_matrix():
     content = (KNOWLEDGE_ROOT / "helper-rules.md").read_text()
     for level in ["covered", "partial", "uncovered"]:
         assert level in content, f"缺少覆盖程度: {level}"
+
+
+def test_framework_files_exist():
+    for fw in ["playwright", "xcuitest", "patrol", "jest-rtl"]:
+        path = KNOWLEDGE_ROOT / "frameworks" / f"{fw}.md"
+        assert path.exists(), f"缺少框架文件: {fw}.md"
+
+
+def test_playwright_has_capability_matrix():
+    content = (KNOWLEDGE_ROOT / "frameworks" / "playwright.md").read_text()
+    for layer in ["element_discovery", "button_trigger", "gesture", "async_wait",
+                  "system_dialog", "keyboard_ime", "scroll_container", "cross_app"]:
+        assert layer in content, f"playwright.md 缺少层: {layer}"
