@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-11
 **Scope:** `src/devforge/workflow/` (new module) + REPL integration
-**Goal:** 独立 workflow 引擎，读取 `.devforge/workflow.json`，按节点顺序执行，追踪 artifact，写 transition log。替代 meta-skill 的 `/run` 命令，与现有 run_cycle 并存（方案 B）。
+**Goal:** 独立 workflow 引擎，读取 `.devforge/workflows/` 目录，按节点顺序执行，追踪 artifact，写 transition log。替代 meta-skill 的 `/run` 命令，与现有 run_cycle 并存（方案 B）。
 
 ---
 
@@ -29,45 +29,90 @@ DevForge 当前有两套执行机制：
 
 ## 数据模型
 
-### `.devforge/workflow.json`
+### 目录结构
+
+```
+.devforge/workflows/
+├── index.json                     # 极轻量：workflow 列表 + active_id
+├── wf-<slug>-<ts>/
+│   ├── manifest.json              # 节点列表（id、status、depends_on，无大字段）
+│   ├── nodes/
+│   │   ├── <node-id>.json         # 单节点完整定义
+│   │   └── ...
+│   └── transitions.jsonl          # append-only，每行一条 JSON 记录
+```
+
+**Token 加载策略：**
+
+| 操作 | 只加载 |
+|---|---|
+| 引擎选下一节点 | `manifest.json` |
+| 执行某节点 | `nodes/<id>.json` |
+| 显示 `wf` 状态 | `manifest.json` |
+| 显示 `wf log` | `transitions.jsonl` |
+| 启动时 | `index.json` |
+
+### `index.json`
 
 ```json
 {
   "schema_version": "1.0",
-  "id": "wf-<slug>-<timestamp>",
-  "goal": "工作流目标描述",
+  "active_workflow_id": "wf-逆向分析-20260411",
+  "workflows": [
+    {
+      "id": "wf-逆向分析-20260411",
+      "goal": "逆向分析 DevForge 项目",
+      "status": "active",
+      "created_at": "<ISO timestamp>"
+    }
+  ]
+}
+```
+
+### `manifest.json`
+
+```json
+{
+  "id": "wf-逆向分析-20260411",
+  "goal": "逆向分析 DevForge 项目",
   "created_at": "<ISO timestamp>",
   "nodes": [
     {
-      "id": "<node-id>",
-      "capability": "<capability-name>",
-      "goal": "<节点目标描述>",
-      "status": "pending | running | completed | failed",
-      "depends_on": ["<node-id>"],
-      "exit_artifacts": ["<relative-path>"],
-      "knowledge_refs": ["<relative-path-to-md>"],
-      "executor": "claude_code | codex",  // 默认 claude_code
+      "id": "discover",
+      "status": "completed",
+      "depends_on": [],
+      "exit_artifacts": [".devforge/artifacts/source-summary.json"],
+      "executor": "codex",
       "parent_node_id": null,
       "depth": 0,
-      "error": null
-    }
-  ],
-  "transition_log": [
-    {
-      "node": "<node-id>",
-      "status": "completed | failed",
-      "started_at": "<ISO timestamp>",
-      "completed_at": "<ISO timestamp>",
-      "artifacts_created": ["<paths>"],
       "error": null
     }
   ]
 }
 ```
 
+### `nodes/<node-id>.json`
+
+```json
+{
+  "id": "discover",
+  "capability": "discovery",
+  "goal": "扫描代码库，建立模块清单",
+  "exit_artifacts": [".devforge/artifacts/source-summary.json"],
+  "knowledge_refs": ["src/devforge/knowledge/content/capabilities/discovery.md"],
+  "executor": "codex"
+}
+```
+
+### `transitions.jsonl`（每行一条）
+
+```jsonl
+{"node": "discover", "status": "completed", "started_at": "...", "completed_at": "...", "artifacts_created": [".devforge/artifacts/source-summary.json"], "error": null}
+```
+
 **节点状态流转：** `pending → running → completed | failed`
 
-**文件即真相：** 引擎启动时先检查 exit_artifacts 是否存在，存在则标记 completed，优先于 transition_log 记录。
+**文件即真相：** 引擎启动时先检查 exit_artifacts 是否存在，存在则在 manifest 中标记 completed，优先于 transitions.jsonl 记录。
 
 ---
 
@@ -76,8 +121,9 @@ DevForge 当前有两套执行机制：
 ```
 src/devforge/workflow/
 ├── __init__.py          # 导出 WorkflowEngine
-├── models.py            # WorkflowNode, WorkflowState TypedDict
+├── models.py            # TypedDict 定义
 ├── engine.py            # 核心执行循环
+├── store.py             # 文件读写（index/manifest/node/transitions）
 └── artifacts.py         # exit_artifacts 存在性检查
 ```
 
@@ -87,19 +133,42 @@ src/devforge/workflow/
 from typing import TypedDict, Literal
 
 NodeStatus = Literal["pending", "running", "completed", "failed"]
+WorkflowStatus = Literal["active", "completed", "paused", "failed"]
 
-class WorkflowNode(TypedDict):
+class NodeManifestEntry(TypedDict):
     id: str
-    capability: str
-    goal: str
     status: NodeStatus
     depends_on: list[str]
     exit_artifacts: list[str]
-    knowledge_refs: list[str]
     executor: str
     parent_node_id: str | None
     depth: int
     error: str | None
+
+class NodeDefinition(TypedDict):
+    id: str
+    capability: str
+    goal: str
+    exit_artifacts: list[str]
+    knowledge_refs: list[str]
+    executor: str
+
+class WorkflowManifest(TypedDict):
+    id: str
+    goal: str
+    created_at: str
+    nodes: list[NodeManifestEntry]
+
+class WorkflowIndexEntry(TypedDict):
+    id: str
+    goal: str
+    status: WorkflowStatus
+    created_at: str
+
+class WorkflowIndex(TypedDict):
+    schema_version: str
+    active_workflow_id: str | None
+    workflows: list[WorkflowIndexEntry]
 
 class TransitionEntry(TypedDict):
     node: str
@@ -108,14 +177,6 @@ class TransitionEntry(TypedDict):
     completed_at: str
     artifacts_created: list[str]
     error: str | None
-
-class WorkflowState(TypedDict):
-    schema_version: str
-    id: str
-    goal: str
-    created_at: str
-    nodes: list[WorkflowNode]
-    transition_log: list[TransitionEntry]
 ```
 
 ### `artifacts.py`
@@ -128,25 +189,33 @@ def check_artifacts(root: Path, paths: list[str]) -> bool:
     return all((root / p).exists() for p in paths)
 ```
 
+### `store.py` 职责
+
+- `read_index(root)` / `write_index(root, index)`
+- `read_manifest(root, wf_id)` / `write_manifest(root, wf_id, manifest)`
+- `read_node(root, wf_id, node_id)` / `write_node(root, wf_id, node)`
+- `append_transition(root, wf_id, entry)` — append-only，不重写整个文件
+- `read_transitions(root, wf_id)` — 仅 `wf log` 时调用
+
 ### `engine.py` 核心逻辑
 
 ```python
 MAX_CONCURRENT = 3
 
-def select_next_nodes(state: WorkflowState) -> list[WorkflowNode]:
+def select_next_nodes(manifest: WorkflowManifest) -> list[NodeManifestEntry]:
     """选出可立即执行的节点（依赖全部 completed，且未超并发上限）。"""
-    completed = {n["id"] for n in state["nodes"] if n["status"] == "completed"}
-    running = [n for n in state["nodes"] if n["status"] == "running"]
+    completed = {n["id"] for n in manifest["nodes"] if n["status"] == "completed"}
+    running = [n for n in manifest["nodes"] if n["status"] == "running"]
     if len(running) >= MAX_CONCURRENT:
         return []
     return [
-        n for n in state["nodes"]
+        n for n in manifest["nodes"]
         if n["status"] == "pending"
         and set(n["depends_on"]) <= completed
     ][:MAX_CONCURRENT - len(running)]
 
-def run_one_cycle(root: Path) -> dict:
-    """执行一轮：选节点 → 调用执行器 → 写 transition_log → 返回摘要。"""
+def run_one_cycle(root: Path, wf_id: str) -> dict:
+    """执行一轮：选节点 → 加载定义 → 调用执行器 → 写 transitions → 更新 manifest。"""
     ...
 ```
 
@@ -157,21 +226,23 @@ def run_one_cycle(root: Path) -> dict:
 ```
 wf run 触发一次 run_one_cycle：
 
-1. 读 .devforge/workflow.json
-2. 检查所有节点的 exit_artifacts：存在 → status = completed（文件即真相）
-3. select_next_nodes() 选出可执行节点（pending + 依赖满足 + 不超并发）
-4. 对每个选中节点：
-   a. 读 knowledge_refs 文件内容
-   b. 构建执行器 prompt（goal + knowledge_refs + 已完成节点的 artifacts 路径）
-   c. 调用 ClaudeCodeAdapter 或 CodexAdapter
-   d. 追加 transition_log（started_at / completed_at / artifacts_created / error）
-   e. 更新节点 status
-5. 写回 workflow.json
-6. 返回执行摘要
+1. 读 index.json → 确定 active_workflow_id
+2. 读 manifest.json → 获取节点状态列表
+3. 检查所有 pending/running 节点的 exit_artifacts：存在 → 更新 manifest status = completed
+4. select_next_nodes(manifest) 选出可执行节点
+5. 对每个选中节点：
+   a. 读 nodes/<id>.json 获取完整定义（goal、knowledge_refs）
+   b. 读 knowledge_refs 文件内容
+   c. 构建执行器 prompt（goal + knowledge_refs + 已完成节点的 artifacts 路径）
+   d. 调用 CodexAdapter（默认）或 ClaudeCodeAdapter
+   e. append_transition(transitions.jsonl)
+   f. 更新 manifest 中该节点的 status
+6. 写回 manifest.json
+7. 返回执行摘要
 ```
 
 **终止条件：**
-- 所有节点 `completed` → 成功，打印完成报告
+- 所有节点 `completed` → 成功，更新 index.json workflow status = completed
 - 某节点 `failed` 连续 3 次 → 警告用户，停止并等待人工干预
 - 无可执行节点但有 `pending` 节点 → 存在未满足依赖，报错说明哪些节点阻塞
 
@@ -181,18 +252,20 @@ wf run 触发一次 run_one_cycle：
 
 ### 新增命令
 
-| 命令 | 说明 |
-|---|---|
-| `wf` | 显示工作流 DAG 状态 |
-| `wf run` | 执行下一批可运行节点 |
-| `wf init <名称>` | 从内置模板创建 workflow.json |
-| `wf log` | 显示 transition_log |
-| `wf reset <node-id>` | 重置节点为 pending（重跑） |
+| 命令 | 说明 | 加载文件 |
+|---|---|---|
+| `wf` | 显示活跃工作流 DAG 状态 | `index.json` + `manifest.json` |
+| `wf run` | 执行下一批可运行节点 | `manifest.json` + 选中节点的 `nodes/<id>.json` |
+| `wf init <名称>` | 从内置模板创建工作流 | 写 `index.json` + `manifest.json` + `nodes/` |
+| `wf log` | 显示执行历史 | `transitions.jsonl` |
+| `wf reset <node-id>` | 重置节点为 pending | `manifest.json` |
+| `wf list` | 列出所有工作流 | `index.json` |
+| `wf switch <wf-id>` | 切换活跃工作流 | `index.json` |
 
 ### `wf` 输出示例
 
 ```
-Workflow: 逆向分析 DevForge 项目
+Workflow: 逆向分析 DevForge 项目  [wf-逆向分析-20260411]
 ──────────────────────────────────
 ✅ discover          (completed)
 ⏳ reverse-concept   (pending, 等待: discover)
@@ -205,7 +278,7 @@ Workflow: 逆向分析 DevForge 项目
 ### 目标设置集成
 
 启动时询问"当前目标"后：
-- `.devforge/workflow.json` 已存在 → 自动显示 `wf` 状态
+- `index.json` 存在且有 active workflow → 自动显示 `wf` 状态
 - 不存在 → 提示 `wf init <模板>` 创建，或 `c` 继续现有 run_cycle
 
 ---
@@ -217,16 +290,18 @@ Workflow: 逆向分析 DevForge 项目
 | `src/devforge/workflow/__init__.py` | 新建 |
 | `src/devforge/workflow/models.py` | 新建 |
 | `src/devforge/workflow/engine.py` | 新建 |
+| `src/devforge/workflow/store.py` | 新建 |
 | `src/devforge/workflow/artifacts.py` | 新建 |
 | `src/devforge/repl.py` | 修改：新增 wf 命令解析和渲染 |
 | `tests/test_workflow_engine.py` | 新建 |
+| `tests/test_workflow_store.py` | 新建 |
 
 ---
 
 ## 测试策略
 
-- **unit**：`artifacts.py` 的文件检查，`select_next_nodes()` 的依赖解析，`TransitionEntry` 写入
-- **integration**：完整 workflow 从 pending → completed，失败重试逻辑，文件即真相覆盖 transition_log
+- **unit**：`artifacts.py` 的文件检查，`select_next_nodes()` 的依赖解析，`store.py` 的读写操作，`append_transition` 的 append-only 正确性
+- **integration**：完整 workflow 从 pending → completed，失败重试逻辑，文件即真相覆盖 manifest status，多工作流切换
 - **不测**：执行器实际调用（mock adapter），REPL 渲染输出
 
 ---
