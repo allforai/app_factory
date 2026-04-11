@@ -927,7 +927,45 @@ def build_cli_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="Check local executor readiness before running live cycles.")
     doctor_parser.add_argument("--json", action="store_true", help="Print full JSON result instead of summary.")
 
+    subparsers.add_parser("setup", help="Configure API keys saved to ~/.devforge/.env.")
+
     return parser
+
+
+def _run_setup() -> int:
+    """Interactive setup: save API keys to ~/.devforge/.env."""
+    import os
+    env_dir = Path.home() / ".devforge"
+    env_file = env_dir / ".env"
+    env_dir.mkdir(exist_ok=True)
+
+    existing_lines = env_file.read_text().splitlines() if env_file.exists() else []
+    already_saved = any(l.startswith("OPENROUTER_API_KEY=") for l in existing_lines)
+    if already_saved or os.environ.get("OPENROUTER_API_KEY"):
+        print("✓ OPENROUTER_API_KEY already configured.")
+        return 0
+
+    key = input("OpenRouter API Key: ").strip()
+    if not key:
+        print("No key entered, nothing saved.")
+        return 0
+
+    existing_lines.append(f"OPENROUTER_API_KEY={key}")
+    env_file.write_text("\n".join(existing_lines) + "\n")
+    print("✓ Saved to ~/.devforge/.env")
+    return 0
+
+
+def _load_devforge_env() -> None:
+    """Load ~/.devforge/.env into os.environ if it exists."""
+    import os
+    env_file = Path.home() / ".devforge" / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -935,6 +973,10 @@ def main(argv: list[str] | None = None) -> int:
     from devforge.repl import persist_session_bundle, run_interactive_session, _runs_from_cycle, _transitions_from_cycle
     from devforge.session import SessionState, ViewState
 
+    _load_devforge_env()
+    from importlib.metadata import version as _pkg_version
+    import sys
+    print(f"devforge {_pkg_version('devforge')}", file=sys.stderr)
     parser = build_cli_parser()
     args = parser.parse_args(argv)
 
@@ -989,6 +1031,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.command == "doctor":
         result = run_executor_doctor(cwd=Path.cwd())
+    elif args.command == "setup":
+        return _run_setup()
     else:
         parser.error(f"unsupported command: {args.command}")
         return 2

@@ -27,7 +27,7 @@ def test_main_without_runtime_enters_repl_and_reports_missing_runtime(tmp_path, 
 
 def test_run_interactive_session_onboards_missing_runtime_in_current_directory(tmp_path) -> None:
     output: list[str] = []
-    scripted_inputs = iter(["1", "退出"])
+    scripted_inputs = iter(["1", "", "退出"])
 
     exit_code = run_interactive_session(
         tmp_path,
@@ -48,7 +48,7 @@ def test_run_interactive_session_can_switch_directory_before_loading_runtime(tmp
     target.mkdir()
     initialize_project(target, force=True, project_name="Demo")
     output: list[str] = []
-    scripted_inputs = iter(["3", str(target), "退出"])
+    scripted_inputs = iter(["3", str(target), "", "退出"])
 
     exit_code = run_interactive_session(
         tmp_path,
@@ -119,7 +119,7 @@ def test_run_interactive_session_supports_status_runs_attach_back_and_quit(tmp_p
 def test_run_interactive_session_continue_persists_cycle_state(tmp_path) -> None:
     initialize_project(tmp_path, force=True, project_name="Demo")
     output: list[str] = []
-    scripted_inputs = iter(["继续", "退出"])
+    scripted_inputs = iter(["", "继续", "退出"])
 
     exit_code = run_interactive_session(
         tmp_path,
