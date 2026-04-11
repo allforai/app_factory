@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from devforge.workflow.artifacts import check_artifacts
+from devforge.executors.subprocess_transport import build_codex_command
 from devforge.workflow.models import (
     NodeDefinition,
     NodeManifestEntry,
     TransitionEntry,
     WorkflowManifest,
+    WorkflowStatus,
 )
 from devforge.workflow.store import (
     active_workflow_id,
@@ -91,7 +93,7 @@ def _dispatch_node(node: NodeDefinition, root: Path) -> dict[str, Any]:
     prompt = prompt + _NON_INTERACTIVE_SUFFIX
     executor = node.get("executor", "codex")
     if executor == "codex":
-        cmd = ["codex", "exec", "--full-auto", "--cd", str(root), prompt]
+        cmd = build_codex_command(prompt=prompt, working_dir=str(root))
     else:
         cmd = ["claude", "--print", prompt]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=root, timeout=_EXECUTOR_TIMEOUT)
@@ -106,12 +108,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _sync_index_status(root: Path, wf_id: str, status: str) -> None:
+def _sync_index_status(root: Path, wf_id: str, status: WorkflowStatus) -> None:
     """Update the index entry status for a workflow."""
     index = read_index(root)
     for entry in index["workflows"]:
         if entry["id"] == wf_id:
-            entry["status"] = status  # type: ignore[typeddict-item]
+            entry["status"] = status
             break
     write_index(root, index)
 
