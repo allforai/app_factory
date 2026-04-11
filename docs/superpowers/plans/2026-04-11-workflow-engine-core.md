@@ -4,7 +4,7 @@
 
 **Goal:** Build a standalone workflow engine that reads `.devforge/workflows/`, executes nodes via Codex/Claude, tracks artifacts and transitions, and exposes `wf` commands in the REPL — replacing meta-skill's `/run` without touching the existing run_cycle machinery.
 
-**Architecture:** New `src/devforge/workflow/` module (models, artifacts, store, engine) with token-efficient file splitting (index/manifest/node/transitions separate files). REPL gets new `wf` intent kinds and handlers. Engine calls executors via subprocess, consistent with how `run_executor_doctor` calls Codex.
+**Architecture:** New `src/devforge/workflow/` module (models, artifacts, store, validation, engine) with token-efficient file splitting (index/manifest/node/transitions separate files). REPL gets new `wf` intent kinds and handlers. Engine calls executors via subprocess, consistent with how `run_executor_doctor` calls Codex. Two-layer status model: `WorkflowPhase` (engine-internal, in manifest) vs `WorkflowStatus` (user-visible, in index). Human-in-the-loop planning: planner node runs first, user confirms y/n, then fully automatic execution.
 
 **Tech Stack:** Python 3.12, TypedDict, pathlib, subprocess, jsonlines (append-only transitions), uv, pytest
 
@@ -16,14 +16,16 @@
 |---|---|---|
 | `src/devforge/workflow/__init__.py` | Create | Export `WorkflowEngine`, `run_one_cycle` |
 | `src/devforge/workflow/models.py` | Create | All TypedDict/Literal definitions |
-| `src/devforge/workflow/artifacts.py` | Create | exit_artifacts existence checking |
-| `src/devforge/workflow/store.py` | Create | Read/write index, manifest, node, transitions |
+| `src/devforge/workflow/artifacts.py` | Create | exit_artifacts existence + size checking |
+| `src/devforge/workflow/store.py` | Create | Read/write index, manifest, node, transitions (atomic writes) |
+| `src/devforge/workflow/validation.py` | Create | Workflow node graph validation |
 | `src/devforge/workflow/engine.py` | Create | select_next_nodes, reconcile, run_one_cycle |
 | `src/devforge/session.py` | Modify | Add wf IntentKind values |
 | `src/devforge/repl.py` | Modify | wf command parsing, rendering, handlers, startup |
 | `tests/test_workflow_models.py` | Create | TypedDict shape verification |
 | `tests/test_workflow_artifacts.py` | Create | Artifact checking unit tests |
 | `tests/test_workflow_store.py` | Create | Store read/write round-trip tests |
+| `tests/test_workflow_validation.py` | Create | Validation error cases |
 | `tests/test_workflow_engine.py` | Create | select_next_nodes, reconcile, run_one_cycle (mocked dispatch) |
 
 ---
@@ -46,8 +48,10 @@ from devforge.workflow.models import (
     WorkflowIndex,
     WorkflowIndexEntry,
     TransitionEntry,
+    PlannerOutput,
     NodeStatus,
     WorkflowStatus,
+    WorkflowPhase,
 )
 
 
@@ -58,12 +62,18 @@ def test_node_manifest_entry_is_dict() -> None:
         "depends_on": [],
         "exit_artifacts": [".devforge/artifacts/summary.json"],
         "executor": "codex",
+        "mode": None,
         "parent_node_id": None,
         "depth": 0,
-        "error": None,
+        "attempt_count": 0,
+        "last_started_at": None,
+        "last_completed_at": None,
+        "last_error": None,
     }
     assert isinstance(entry, dict)
     assert entry["status"] == "pending"
+    assert entry["attempt_count"] == 0
+    assert entry["mode"] is None
 
 
 def test_node_definition_is_dict() -> None:
@@ -74,17 +84,21 @@ def test_node_definition_is_dict() -> None:
         "exit_artifacts": [".devforge/artifacts/summary.json"],
         "knowledge_refs": ["src/devforge/knowledge/content/capabilities/discovery.md"],
         "executor": "codex",
+        "mode": None,
     }
     assert node["capability"] == "discovery"
+    assert node["mode"] is None
 
 
-def test_workflow_manifest_is_dict() -> None:
+def test_workflow_manifest_has_workflow_status() -> None:
     manifest: WorkflowManifest = {
         "id": "wf-test-001",
         "goal": "Test workflow",
         "created_at": "2026-04-11T00:00:00Z",
+        "workflow_status": "running",
         "nodes": [],
     }
+    assert manifest["workflow_status"] == "running"
     assert manifest["nodes"] == []
 
 
@@ -95,6 +109,14 @@ def test_workflow_index_is_dict() -> None:
         "workflows": [],
     }
     assert index["schema_version"] == "1.0"
+
+
+def test_planner_output_is_dict() -> None:
+    output: PlannerOutput = {
+        "nodes": [],
+        "summary": "計劃包含 0 個節點",
+    }
+    assert output["summary"] == "計劃包含 0 個節點"
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -115,7 +137,12 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 NodeStatus = Literal["pending", "running", "completed", "failed"]
-WorkflowStatus = Literal["active", "completed", "paused", "failed"]
+
+# Engine-internal phase (stored in manifest.workflow_status)
+WorkflowPhase = Literal["planning", "awaiting_confirm", "running", "complete", "failed"]
+
+# User-visible lifecycle status (stored in index.json per workflow)
+WorkflowStatus = Literal["active", "complete", "paused", "failed"]
 
 
 class NodeManifestEntry(TypedDict):
@@ -124,9 +151,13 @@ class NodeManifestEntry(TypedDict):
     depends_on: list[str]
     exit_artifacts: list[str]
     executor: str
+    mode: str | None          # None = regular node, "planning" = planner node
     parent_node_id: str | None
     depth: int
-    error: str | None
+    attempt_count: int        # cumulative execution attempts
+    last_started_at: str | None
+    last_completed_at: str | None
+    last_error: str | None
 
 
 class NodeDefinition(TypedDict):
@@ -136,12 +167,14 @@ class NodeDefinition(TypedDict):
     exit_artifacts: list[str]
     knowledge_refs: list[str]
     executor: str
+    mode: str | None          # None | "planning"
 
 
 class WorkflowManifest(TypedDict):
     id: str
     goal: str
     created_at: str
+    workflow_status: WorkflowPhase   # engine-internal phase
     nodes: list[NodeManifestEntry]
 
 
@@ -165,6 +198,11 @@ class TransitionEntry(TypedDict):
     completed_at: str
     artifacts_created: list[str]
     error: str | None
+
+
+class PlannerOutput(TypedDict):
+    nodes: list[NodeDefinition]
+    summary: str
 ```
 
 - [ ] **Step 4: Create `src/devforge/workflow/__init__.py`**
@@ -177,10 +215,12 @@ from devforge.workflow.models import (
     NodeDefinition,
     NodeManifestEntry,
     NodeStatus,
+    PlannerOutput,
     TransitionEntry,
     WorkflowIndex,
     WorkflowIndexEntry,
     WorkflowManifest,
+    WorkflowPhase,
     WorkflowStatus,
 )
 
@@ -189,10 +229,12 @@ __all__ = [
     "NodeDefinition",
     "NodeManifestEntry",
     "NodeStatus",
+    "PlannerOutput",
     "TransitionEntry",
     "WorkflowIndex",
     "WorkflowIndexEntry",
     "WorkflowManifest",
+    "WorkflowPhase",
     "WorkflowStatus",
 ]
 ```
@@ -203,7 +245,7 @@ __all__ = [
 uv run python -m pytest tests/test_workflow_models.py -v
 ```
 
-Expected: `4 passed`
+Expected: `5 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -224,7 +266,6 @@ git commit -m "feat: add workflow engine TypedDict models"
 
 ```python
 # tests/test_workflow_artifacts.py
-import pytest
 from pathlib import Path
 from devforge.workflow.artifacts import check_artifacts
 
@@ -252,6 +293,12 @@ def test_check_artifacts_nested_path(tmp_path: Path) -> None:
     nested.parent.mkdir(parents=True)
     nested.write_text("{}")
     assert check_artifacts(tmp_path, ["sub/deep.json"]) is True
+
+
+def test_check_artifacts_empty_file_returns_false(tmp_path: Path) -> None:
+    f = tmp_path / "empty.json"
+    f.write_text("")
+    assert check_artifacts(tmp_path, ["empty.json"]) is False
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -265,7 +312,7 @@ Expected: `ImportError: cannot import name 'check_artifacts'`
 - [ ] **Step 3: Create `src/devforge/workflow/artifacts.py`**
 
 ```python
-"""exit_artifacts existence checking for the workflow engine."""
+"""exit_artifacts existence and size checking for the workflow engine."""
 
 from __future__ import annotations
 
@@ -273,8 +320,11 @@ from pathlib import Path
 
 
 def check_artifacts(root: Path, paths: list[str]) -> bool:
-    """Return True iff every path in paths exists relative to root."""
-    return all((root / p).exists() for p in paths)
+    """Return True iff every path in paths exists relative to root and has size > 0."""
+    return all(
+        (root / p).exists() and (root / p).stat().st_size > 0
+        for p in paths
+    )
 ```
 
 - [ ] **Step 4: Run the test**
@@ -283,13 +333,13 @@ def check_artifacts(root: Path, paths: list[str]) -> bool:
 uv run python -m pytest tests/test_workflow_artifacts.py -v
 ```
 
-Expected: `4 passed`
+Expected: `5 passed`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/devforge/workflow/artifacts.py tests/test_workflow_artifacts.py
-git commit -m "feat: add workflow artifact existence checker"
+git commit -m "feat: add workflow artifact existence and size checker"
 ```
 
 ---
@@ -306,7 +356,6 @@ git commit -m "feat: add workflow artifact existence checker"
 # tests/test_workflow_store.py
 import json
 from pathlib import Path
-import pytest
 from devforge.workflow.models import (
     WorkflowIndex,
     WorkflowManifest,
@@ -341,6 +390,7 @@ def _make_manifest(wf_id: str = "wf-test-001") -> WorkflowManifest:
         "id": wf_id,
         "goal": "Test workflow",
         "created_at": "2026-04-11T00:00:00Z",
+        "workflow_status": "running",
         "nodes": [
             {
                 "id": "discover",
@@ -348,9 +398,13 @@ def _make_manifest(wf_id: str = "wf-test-001") -> WorkflowManifest:
                 "depends_on": [],
                 "exit_artifacts": [".devforge/artifacts/summary.json"],
                 "executor": "codex",
+                "mode": None,
                 "parent_node_id": None,
                 "depth": 0,
-                "error": None,
+                "attempt_count": 0,
+                "last_started_at": None,
+                "last_completed_at": None,
+                "last_error": None,
             }
         ],
     }
@@ -383,6 +437,7 @@ def test_node_round_trip(tmp_path: Path) -> None:
         "exit_artifacts": [".devforge/artifacts/summary.json"],
         "knowledge_refs": [],
         "executor": "codex",
+        "mode": None,
     }
     write_node(tmp_path, "wf-test-001", node)
     assert read_node(tmp_path, "wf-test-001", "discover") == node
@@ -403,6 +458,30 @@ def test_append_transition_creates_jsonl(tmp_path: Path) -> None:
     transitions = read_transitions(tmp_path, "wf-test-001")
     assert len(transitions) == 2
     assert transitions[0]["node"] == "discover"
+
+
+def test_read_transitions_skips_corrupted_lines(tmp_path: Path) -> None:
+    write_manifest(tmp_path, "wf-test-001", _make_manifest())
+    # Write one valid + one corrupted line directly
+    transitions_path = tmp_path / ".devforge" / "workflows" / "wf-test-001" / "transitions.jsonl"
+    transitions_path.parent.mkdir(parents=True, exist_ok=True)
+    transitions_path.write_text(
+        '{"node": "a", "status": "completed", "started_at": "t", "completed_at": "t", "artifacts_created": [], "error": null}\n'
+        'NOT VALID JSON {{{\n',
+        encoding="utf-8",
+    )
+    transitions = read_transitions(tmp_path, "wf-test-001")
+    assert len(transitions) == 1
+    assert transitions[0]["node"] == "a"
+
+
+def test_write_index_is_atomic(tmp_path: Path) -> None:
+    # write_index should not leave partial files; verify the file is complete after write
+    index = _make_index()
+    write_index(tmp_path, index)
+    index_path = tmp_path / ".devforge" / "workflows" / "index.json"
+    content = json.loads(index_path.read_text())
+    assert content["schema_version"] == "1.0"
 
 
 def test_active_workflow_id_returns_none_when_missing(tmp_path: Path) -> None:
@@ -434,11 +513,16 @@ Directory layout:
       manifest.json
       nodes/<node-id>.json
       transitions.jsonl
+
+Atomicity: manifest.json and index.json use temp-file + os.replace().
+transitions.jsonl is append-only; corrupted lines are skipped on read.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from devforge.workflow.models import (
@@ -483,6 +567,22 @@ def _transitions_path(root: Path, wf_id: str) -> Path:
     return _wf_dir(root, wf_id) / _TRANSITIONS_FILE
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Write text to path atomically via temp file + os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def read_index(root: Path) -> WorkflowIndex:
     path = _index_path(root)
     if not path.exists():
@@ -491,9 +591,10 @@ def read_index(root: Path) -> WorkflowIndex:
 
 
 def write_index(root: Path, index: WorkflowIndex) -> None:
-    path = _index_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(
+        _index_path(root),
+        json.dumps(index, ensure_ascii=False, indent=2) + "\n",
+    )
 
 
 def read_manifest(root: Path, wf_id: str) -> WorkflowManifest:
@@ -504,9 +605,10 @@ def read_manifest(root: Path, wf_id: str) -> WorkflowManifest:
 
 
 def write_manifest(root: Path, wf_id: str, manifest: WorkflowManifest) -> None:
-    path = _manifest_path(root, wf_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write(
+        _manifest_path(root, wf_id),
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+    )
 
 
 def read_node(root: Path, wf_id: str, node_id: str) -> NodeDefinition:
@@ -533,8 +635,15 @@ def read_transitions(root: Path, wf_id: str) -> list[TransitionEntry]:
     path = _transitions_path(root, wf_id)
     if not path.exists():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
-    return [json.loads(line) for line in lines if line.strip()]
+    result: list[TransitionEntry] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            result.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass  # skip corrupted lines
+    return result
 
 
 def active_workflow_id(root: Path) -> str | None:
@@ -547,29 +656,220 @@ def active_workflow_id(root: Path) -> str | None:
 uv run python -m pytest tests/test_workflow_store.py -v
 ```
 
-Expected: `7 passed`
+Expected: `9 passed`
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/devforge/workflow/store.py tests/test_workflow_store.py
-git commit -m "feat: add workflow store file I/O layer"
+git commit -m "feat: add workflow store file I/O layer with atomic writes"
 ```
 
 ---
 
-### Task 4: `engine.py` — node selection and artifact reconciliation
+### Task 4: `validation.py`
+
+**Files:**
+- Create: `src/devforge/workflow/validation.py`
+- Create: `tests/test_workflow_validation.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_workflow_validation.py
+import pytest
+from devforge.workflow.models import NodeDefinition
+from devforge.workflow.validation import validate_workflow
+
+
+def _node(
+    node_id: str,
+    depends_on: list[str] | None = None,
+    executor: str = "codex",
+    mode: str | None = None,
+) -> NodeDefinition:
+    return {
+        "id": node_id,
+        "capability": "discovery",
+        "goal": f"Run {node_id}",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": executor,
+        "mode": mode,
+    }
+
+
+def test_valid_linear_graph_passes() -> None:
+    nodes = [_node("a"), _node("b", depends_on=["a"]), _node("c", depends_on=["b"])]
+    validate_workflow(nodes)  # no exception
+
+
+def test_duplicate_ids_raise() -> None:
+    nodes = [_node("a"), _node("a")]
+    with pytest.raises(ValueError, match="duplicate"):
+        validate_workflow(nodes)
+
+
+def test_missing_dependency_raises() -> None:
+    nodes = [_node("b", depends_on=["nonexistent"])]
+    with pytest.raises(ValueError, match="nonexistent"):
+        validate_workflow(nodes)
+
+
+def test_self_dependency_raises() -> None:
+    nodes = [_node("a", depends_on=["a"])]
+    with pytest.raises(ValueError, match="self"):
+        validate_workflow(nodes)
+
+
+def test_cyclic_dependency_raises() -> None:
+    nodes = [_node("a", depends_on=["b"]), _node("b", depends_on=["a"])]
+    with pytest.raises(ValueError, match="cycl"):
+        validate_workflow(nodes)
+
+
+def test_invalid_executor_raises() -> None:
+    nodes = [_node("a", executor="invalid_executor")]
+    with pytest.raises(ValueError, match="executor"):
+        validate_workflow(nodes)
+
+
+def test_empty_graph_passes() -> None:
+    validate_workflow([])  # no exception
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+```bash
+uv run python -m pytest tests/test_workflow_validation.py -v
+```
+
+Expected: `ImportError: cannot import name 'validate_workflow'`
+
+- [ ] **Step 3: Create `src/devforge/workflow/validation.py`**
+
+```python
+"""Workflow node graph validation.
+
+Called by wf init (before writing files) and by the planner flow (before
+accepting planner output). Raises ValueError describing the first violation found.
+
+knowledge_refs pointing to missing files are warnings only (stderr), not errors.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from devforge.workflow.models import NodeDefinition
+
+_VALID_EXECUTORS = {"codex", "claude_code"}
+
+
+def validate_workflow(nodes: list[NodeDefinition], root: Path | None = None) -> None:
+    """Validate node graph. Raises ValueError on the first structural violation.
+
+    Args:
+        nodes: list of NodeDefinition to validate.
+        root: project root for knowledge_refs existence check (optional; warnings only).
+    """
+    ids = [n["id"] for n in nodes]
+
+    # Unique IDs
+    seen: set[str] = set()
+    for node_id in ids:
+        if node_id in seen:
+            raise ValueError(f"duplicate node id: '{node_id}'")
+        seen.add(node_id)
+
+    id_set = set(ids)
+    for node in nodes:
+        node_id = node["id"]
+
+        # Self-dependency
+        if node_id in node.get("depends_on", []):
+            raise ValueError(f"node '{node_id}' has self-dependency")
+
+        # Missing dependencies
+        for dep in node.get("depends_on", []):
+            if dep not in id_set:
+                raise ValueError(
+                    f"node '{node_id}' depends on '{dep}' which does not exist in the workflow"
+                )
+
+        # Valid executor
+        if node.get("executor", "codex") not in _VALID_EXECUTORS:
+            raise ValueError(
+                f"node '{node_id}' has invalid executor '{node['executor']}' "
+                f"(must be one of: {sorted(_VALID_EXECUTORS)})"
+            )
+
+        # knowledge_refs: warn only
+        if root is not None:
+            for ref in node.get("knowledge_refs", []):
+                if not (root / ref).exists():
+                    print(
+                        f"WARNING: knowledge_ref '{ref}' for node '{node_id}' not found — skipping",
+                        file=sys.stderr,
+                    )
+
+    # Cycle detection (DFS)
+    adj: dict[str, list[str]] = {n["id"]: list(n.get("depends_on", [])) for n in nodes}
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+
+    def dfs(node_id: str) -> None:
+        visited.add(node_id)
+        in_stack.add(node_id)
+        for dep in adj.get(node_id, []):
+            if dep not in visited:
+                dfs(dep)
+            elif dep in in_stack:
+                raise ValueError(f"cyclic dependency detected involving node '{dep}'")
+        in_stack.discard(node_id)
+
+    for node_id in ids:
+        if node_id not in visited:
+            dfs(node_id)
+```
+
+- [ ] **Step 4: Run the tests**
+
+```bash
+uv run python -m pytest tests/test_workflow_validation.py -v
+```
+
+Expected: `7 passed`
+
+- [ ] **Step 5: Run full suite to verify no regressions**
+
+```bash
+uv run python -m pytest -q
+```
+
+Expected: all passing
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/devforge/workflow/validation.py tests/test_workflow_validation.py
+git commit -m "feat: add workflow graph validation (cycles, duplicates, missing deps)"
+```
+
+---
+
+### Task 5: `engine.py` — node selection and artifact reconciliation
 
 **Files:**
 - Create: `src/devforge/workflow/engine.py`
-- Create: `tests/test_workflow_engine.py` (partial)
+- Create: `tests/test_workflow_engine.py` (selection + reconcile tests only)
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_workflow_engine.py
 from pathlib import Path
-import pytest
 from devforge.workflow.models import NodeManifestEntry, WorkflowManifest
 from devforge.workflow.engine import select_next_nodes, reconcile_artifacts
 
@@ -579,6 +879,8 @@ def _node(
     status: str = "pending",
     depends_on: list[str] | None = None,
     exit_artifacts: list[str] | None = None,
+    mode: str | None = None,
+    attempt_count: int = 0,
 ) -> NodeManifestEntry:
     return {
         "id": node_id,
@@ -586,14 +888,24 @@ def _node(
         "depends_on": depends_on or [],
         "exit_artifacts": exit_artifacts or [],
         "executor": "codex",
+        "mode": mode,
         "parent_node_id": None,
         "depth": 0,
-        "error": None,
+        "attempt_count": attempt_count,
+        "last_started_at": None,
+        "last_completed_at": None,
+        "last_error": None,
     }
 
 
-def _manifest(nodes: list[NodeManifestEntry]) -> WorkflowManifest:
-    return {"id": "wf-test", "goal": "test", "created_at": "2026-04-11T00:00:00Z", "nodes": nodes}
+def _manifest(nodes: list[NodeManifestEntry], phase: str = "running") -> WorkflowManifest:
+    return {
+        "id": "wf-test",
+        "goal": "test",
+        "created_at": "2026-04-11T00:00:00Z",
+        "workflow_status": phase,  # type: ignore[typeddict-item]
+        "nodes": nodes,
+    }
 
 
 def test_select_next_nodes_no_deps() -> None:
@@ -656,6 +968,16 @@ def test_reconcile_artifacts_no_artifacts_stays_pending(tmp_path: Path) -> None:
     manifest = _manifest(nodes)
     updated = reconcile_artifacts(tmp_path, manifest)
     assert updated["nodes"][0]["status"] == "pending"
+
+
+def test_reconcile_skips_planning_nodes(tmp_path: Path) -> None:
+    # Planning nodes never reconcile via artifacts even if files exist
+    artifact = tmp_path / "plan.json"
+    artifact.write_text("{}")
+    nodes = [_node("planner", exit_artifacts=["plan.json"], mode="planning")]
+    manifest = _manifest(nodes)
+    updated = reconcile_artifacts(tmp_path, manifest)
+    assert updated["nodes"][0]["status"] == "pending"
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -689,9 +1011,10 @@ from devforge.workflow.models import (
 from devforge.workflow.store import (
     active_workflow_id,
     append_transition,
+    read_index,
     read_manifest,
     read_node,
-    read_transitions,
+    write_index,
     write_manifest,
 )
 
@@ -708,24 +1031,30 @@ def select_next_nodes(manifest: WorkflowManifest) -> list[NodeManifestEntry]:
     return [
         n for n in manifest["nodes"]
         if n["status"] == "pending"
-        and set(n["depends_on"]) <= completed_ids
+        and set(n.get("depends_on", [])) <= completed_ids
     ][:slots]
 
 
 def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManifest:
-    """Mark nodes completed if all their exit_artifacts exist on disk (files are ground truth)."""
+    """Mark nodes completed if all their exit_artifacts exist on disk.
+
+    Planning nodes (mode == "planning") are never reconciled via artifacts.
+    Nodes with empty exit_artifacts are not automatically completed.
+    """
     updated = copy.deepcopy(manifest)
     for node in updated["nodes"]:
+        if node.get("mode") == "planning":
+            continue
         if node["status"] in ("pending", "running") and node["exit_artifacts"]:
             if check_artifacts(root, node["exit_artifacts"]):
                 node["status"] = "completed"
-                node["error"] = None
+                node["last_error"] = None
     return updated
 
 
 def run_one_cycle(root: Path) -> dict[str, Any]:
     """Execute one workflow cycle: reconcile → select → dispatch → persist."""
-    ...  # implemented in Task 5
+    ...  # implemented in Task 6
 ```
 
 - [ ] **Step 4: Run the tests**
@@ -734,7 +1063,7 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
 uv run python -m pytest tests/test_workflow_engine.py -v
 ```
 
-Expected: `9 passed` (run_one_cycle tests not written yet)
+Expected: `10 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -745,7 +1074,7 @@ git commit -m "feat: add workflow node selection and artifact reconciliation"
 
 ---
 
-### Task 5: `engine.py` — `run_one_cycle` with executor dispatch
+### Task 6: `engine.py` — `run_one_cycle` with executor dispatch
 
 **Files:**
 - Modify: `src/devforge/workflow/engine.py`
@@ -762,7 +1091,12 @@ from devforge.workflow.models import WorkflowIndex
 from devforge.workflow.engine import run_one_cycle
 
 
-def _setup_workflow(tmp_path: Path, nodes_status: dict[str, str] | None = None) -> None:
+def _setup_workflow(
+    tmp_path: Path,
+    nodes_status: dict[str, str] | None = None,
+    phase: str = "running",
+    attempt_counts: dict[str, int] | None = None,
+) -> None:
     wf_id = "wf-test-001"
     index: WorkflowIndex = {
         "schema_version": "1.0",
@@ -772,13 +1106,19 @@ def _setup_workflow(tmp_path: Path, nodes_status: dict[str, str] | None = None) 
     write_index(tmp_path, index)
 
     nodes_status = nodes_status or {"discover": "pending"}
+    attempt_counts = attempt_counts or {}
     manifest_nodes: list[NodeManifestEntry] = []
     for node_id, status in nodes_status.items():
-        manifest_nodes.append(_node(node_id, status=status))
+        manifest_nodes.append(_node(
+            node_id,
+            status=status,
+            attempt_count=attempt_counts.get(node_id, 0),
+        ))
     manifest: WorkflowManifest = {
         "id": wf_id,
         "goal": "Test workflow",
         "created_at": "2026-04-11T00:00:00Z",
+        "workflow_status": phase,  # type: ignore[typeddict-item]
         "nodes": manifest_nodes,
     }
     write_manifest(tmp_path, wf_id, manifest)
@@ -791,6 +1131,7 @@ def _setup_workflow(tmp_path: Path, nodes_status: dict[str, str] | None = None) 
             "exit_artifacts": [],
             "knowledge_refs": [],
             "executor": "codex",
+            "mode": None,
         }
         write_node(tmp_path, wf_id, node_def)
 
@@ -809,9 +1150,12 @@ def test_run_one_cycle_marks_node_completed_on_success(tmp_path: Path) -> None:
     with patch("devforge.workflow.engine._dispatch_node") as mock_dispatch:
         mock_dispatch.return_value = {"returncode": 0, "output": "ok", "executor": "codex"}
         run_one_cycle(tmp_path)
-    from devforge.workflow.store import read_manifest
     manifest = read_manifest(tmp_path, "wf-test-001")
-    assert manifest["nodes"][0]["status"] == "completed"
+    node = manifest["nodes"][0]
+    assert node["status"] == "completed"
+    assert node["attempt_count"] == 1
+    assert node["last_completed_at"] is not None
+    assert node["last_error"] is None
 
 
 def test_run_one_cycle_marks_node_failed_on_error(tmp_path: Path) -> None:
@@ -819,10 +1163,11 @@ def test_run_one_cycle_marks_node_failed_on_error(tmp_path: Path) -> None:
     with patch("devforge.workflow.engine._dispatch_node") as mock_dispatch:
         mock_dispatch.return_value = {"returncode": 1, "output": "error msg", "executor": "codex"}
         run_one_cycle(tmp_path)
-    from devforge.workflow.store import read_manifest
     manifest = read_manifest(tmp_path, "wf-test-001")
-    assert manifest["nodes"][0]["status"] == "failed"
-    assert manifest["nodes"][0]["error"] == "error msg"
+    node = manifest["nodes"][0]
+    assert node["status"] == "failed"
+    assert node["last_error"] == "error msg"
+    assert node["attempt_count"] == 1
 
 
 def test_run_one_cycle_writes_transition_log(tmp_path: Path) -> None:
@@ -842,11 +1187,57 @@ def test_run_one_cycle_returns_all_complete_when_done(tmp_path: Path) -> None:
     result = run_one_cycle(tmp_path)
     assert result["status"] == "all_complete"
     assert result["dispatched"] == []
+    # index.status should be synced to "complete"
+    index = read_index(tmp_path)
+    assert index["workflows"][0]["status"] == "complete"
 
 
 def test_run_one_cycle_returns_no_active_workflow_when_missing(tmp_path: Path) -> None:
     result = run_one_cycle(tmp_path)
     assert result["status"] == "no_active_workflow"
+
+
+def test_run_one_cycle_returns_manifest_missing(tmp_path: Path) -> None:
+    wf_id = "wf-test-001"
+    index: WorkflowIndex = {
+        "schema_version": "1.0",
+        "active_workflow_id": wf_id,
+        "workflows": [{"id": wf_id, "goal": "Test", "status": "active", "created_at": "2026-04-11T00:00:00Z"}],
+    }
+    write_index(tmp_path, index)
+    # manifest file is NOT written
+    result = run_one_cycle(tmp_path)
+    assert result["status"] == "manifest_missing"
+
+
+def test_run_one_cycle_returns_awaiting_confirm(tmp_path: Path) -> None:
+    _setup_workflow(tmp_path, phase="awaiting_confirm")
+    result = run_one_cycle(tmp_path)
+    assert result["status"] == "awaiting_confirm"
+
+
+def test_run_one_cycle_executor_not_found(tmp_path: Path) -> None:
+    _setup_workflow(tmp_path)
+    with patch("devforge.workflow.engine._dispatch_node") as mock_dispatch:
+        mock_dispatch.side_effect = FileNotFoundError("codex not found")
+        run_one_cycle(tmp_path)
+    manifest = read_manifest(tmp_path, "wf-test-001")
+    node = manifest["nodes"][0]
+    assert node["status"] == "failed"
+    assert "executor not found" in (node["last_error"] or "")
+
+
+def test_run_one_cycle_workflow_fails_after_max_attempts(tmp_path: Path) -> None:
+    # attempt_count already at 2, so this attempt makes it 3 → workflow_status = failed
+    _setup_workflow(tmp_path, attempt_counts={"discover": 2})
+    with patch("devforge.workflow.engine._dispatch_node") as mock_dispatch:
+        mock_dispatch.return_value = {"returncode": 1, "output": "still failing", "executor": "codex"}
+        result = run_one_cycle(tmp_path)
+    assert result["status"] == "workflow_failed"
+    manifest = read_manifest(tmp_path, "wf-test-001")
+    assert manifest["workflow_status"] == "failed"
+    index = read_index(tmp_path)
+    assert index["workflows"][0]["status"] == "failed"
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -859,11 +1250,73 @@ Expected: `FAILED` — `run_one_cycle` returns `None` (stub)
 
 - [ ] **Step 3: Implement `_dispatch_node` and `run_one_cycle` in `engine.py`**
 
-Replace the stub `run_one_cycle` and add `_dispatch_node`:
+Replace the stub `run_one_cycle` and add helpers. Replace the entire file content with:
 
 ```python
+"""Workflow engine: node selection, artifact reconciliation, and execution."""
+
+from __future__ import annotations
+
+import copy
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from devforge.workflow.artifacts import check_artifacts
+from devforge.workflow.models import (
+    NodeDefinition,
+    NodeManifestEntry,
+    TransitionEntry,
+    WorkflowManifest,
+)
+from devforge.workflow.store import (
+    active_workflow_id,
+    append_transition,
+    read_index,
+    read_manifest,
+    read_node,
+    write_index,
+    write_manifest,
+)
+
+MAX_CONCURRENT = 3
+MAX_ATTEMPTS = 3
+
+
+def select_next_nodes(manifest: WorkflowManifest) -> list[NodeManifestEntry]:
+    """Return nodes that are ready to run (pending + deps met + under concurrency limit)."""
+    completed_ids = {n["id"] for n in manifest["nodes"] if n["status"] == "completed"}
+    running_count = sum(1 for n in manifest["nodes"] if n["status"] == "running")
+    slots = MAX_CONCURRENT - running_count
+    if slots <= 0:
+        return []
+    return [
+        n for n in manifest["nodes"]
+        if n["status"] == "pending"
+        and set(n.get("depends_on", [])) <= completed_ids
+    ][:slots]
+
+
+def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManifest:
+    """Mark nodes completed if all their exit_artifacts exist on disk.
+
+    Planning nodes (mode == "planning") are never reconciled via artifacts.
+    Nodes with empty exit_artifacts are not automatically completed.
+    """
+    updated = copy.deepcopy(manifest)
+    for node in updated["nodes"]:
+        if node.get("mode") == "planning":
+            continue
+        if node["status"] in ("pending", "running") and node["exit_artifacts"]:
+            if check_artifacts(root, node["exit_artifacts"]):
+                node["status"] = "completed"
+                node["last_error"] = None
+    return updated
+
+
 def _load_knowledge(refs: list[str], root: Path) -> str:
-    """Read knowledge_refs files and join their content."""
+    """Read knowledge_refs files and join their content. Missing files are skipped."""
     parts: list[str] = []
     for ref in refs:
         path = root / ref
@@ -895,18 +1348,38 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _sync_index_status(root: Path, wf_id: str, status: str) -> None:
+    """Update the index entry status for a workflow."""
+    index = read_index(root)
+    for entry in index["workflows"]:
+        if entry["id"] == wf_id:
+            entry["status"] = status  # type: ignore[typeddict-item]
+            break
+    write_index(root, index)
+
+
 def run_one_cycle(root: Path) -> dict[str, Any]:
     """Execute one workflow cycle: reconcile → select → dispatch → persist."""
     wf_id = active_workflow_id(root)
     if wf_id is None:
         return {"status": "no_active_workflow", "dispatched": []}
 
-    manifest = read_manifest(root, wf_id)
+    try:
+        manifest = read_manifest(root, wf_id)
+    except FileNotFoundError:
+        return {"status": "manifest_missing", "dispatched": []}
+
+    # Human-in-the-loop gate: planner ran, waiting for user confirmation
+    if manifest["workflow_status"] == "awaiting_confirm":
+        return {"status": "awaiting_confirm", "dispatched": []}
+
     manifest = reconcile_artifacts(root, manifest)
 
     all_done = all(n["status"] == "completed" for n in manifest["nodes"])
-    if all_done:
+    if all_done and manifest["nodes"]:
+        manifest["workflow_status"] = "complete"
         write_manifest(root, wf_id, manifest)
+        _sync_index_status(root, wf_id, "complete")
         return {"status": "all_complete", "dispatched": []}
 
     candidates = select_next_nodes(manifest)
@@ -921,30 +1394,47 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
         node_def = read_node(root, wf_id, entry["id"])
         started_at = _now()
 
-        # mark running
+        # mark running and increment attempt_count
         entry["status"] = "running"
+        entry["attempt_count"] = entry.get("attempt_count", 0) + 1
+        entry["last_started_at"] = started_at
         write_manifest(root, wf_id, manifest)
 
-        result = _dispatch_node(node_def, root)
-        completed_at = _now()
+        try:
+            result = _dispatch_node(node_def, root)
+            returncode = result["returncode"]
+            output = result.get("output", "")
+        except FileNotFoundError as exc:
+            returncode = 1
+            output = f"executor not found: {node_def.get('executor', 'codex')}"
 
-        if result["returncode"] == 0:
+        completed_at = _now()
+        entry["last_completed_at"] = completed_at
+
+        if returncode == 0:
             entry["status"] = "completed"
-            entry["error"] = None
+            entry["last_error"] = None
         else:
             entry["status"] = "failed"
-            entry["error"] = result["output"][:500] if result["output"] else "non-zero exit"
+            entry["last_error"] = output[:500] if output else "non-zero exit"
 
         transition: TransitionEntry = {
             "node": entry["id"],
-            "status": "completed" if result["returncode"] == 0 else "failed",
+            "status": "completed" if returncode == 0 else "failed",
             "started_at": started_at,
             "completed_at": completed_at,
             "artifacts_created": node_def.get("exit_artifacts", []),
-            "error": entry["error"],
+            "error": entry["last_error"],
         }
         append_transition(root, wf_id, transition)
         dispatched.append(entry["id"])
+
+        # Check if this node exceeded max attempts → fail the whole workflow
+        if entry["status"] == "failed" and entry["attempt_count"] >= MAX_ATTEMPTS:
+            manifest["workflow_status"] = "failed"
+            write_manifest(root, wf_id, manifest)
+            _sync_index_status(root, wf_id, "failed")
+            return {"status": "workflow_failed", "dispatched": dispatched}
 
     write_manifest(root, wf_id, manifest)
     return {"status": "ok", "dispatched": dispatched}
@@ -956,7 +1446,7 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
 uv run python -m pytest tests/test_workflow_engine.py -v
 ```
 
-Expected: `15 passed`
+Expected: `20 passed`
 
 - [ ] **Step 5: Run full suite to verify no regressions**
 
@@ -970,12 +1460,12 @@ Expected: all passing
 
 ```bash
 git add src/devforge/workflow/engine.py tests/test_workflow_engine.py
-git commit -m "feat: implement run_one_cycle with executor dispatch"
+git commit -m "feat: implement run_one_cycle with executor dispatch, retry tracking, and failure thresholds"
 ```
 
 ---
 
-### Task 6: `session.py` — add wf IntentKind values
+### Task 7: `session.py` — add wf IntentKind values
 
 **Files:**
 - Modify: `src/devforge/session.py:33-45`
@@ -993,6 +1483,7 @@ def test_user_intent_accepts_wf_kinds() -> None:
         UserIntent(kind="show_workflow"),
         UserIntent(kind="run_workflow"),
         UserIntent(kind="init_workflow"),
+        UserIntent(kind="confirm_workflow"),
         UserIntent(kind="log_workflow"),
         UserIntent(kind="reset_workflow_node", payload={"node_id": "discover"}),
         UserIntent(kind="list_workflows"),
@@ -1007,11 +1498,11 @@ def test_user_intent_accepts_wf_kinds() -> None:
 uv run python -m pytest tests/test_workflow_engine.py::test_user_intent_accepts_wf_kinds -v
 ```
 
-Expected: `FAILED` — `UserIntent` raises error on unknown kind (or mypy would reject it)
+Expected: `FAILED` — `UserIntent` raises error on unknown kind
 
 - [ ] **Step 3: Update `IntentKind` in `src/devforge/session.py`**
 
-Find the `IntentKind` Literal (lines 33-45) and add the new values:
+Find the `IntentKind` Literal and add the new values:
 
 ```python
 IntentKind = Literal[
@@ -1031,6 +1522,7 @@ IntentKind = Literal[
     "show_workflow",
     "run_workflow",
     "init_workflow",
+    "confirm_workflow",
     "log_workflow",
     "reset_workflow_node",
     "list_workflows",
@@ -1063,14 +1555,14 @@ git commit -m "feat: add workflow IntentKind values to session model"
 
 ---
 
-### Task 7: `repl.py` — wf command parsing, rendering, and handlers
+### Task 8: `repl.py` — wf command parsing, rendering, and handlers
 
 **Files:**
 - Modify: `src/devforge/repl.py`
 
 - [ ] **Step 1: Add wf command parsing to `parse_user_intent`**
 
-In `src/devforge/repl.py`, in `parse_user_intent()` after the existing quit block (around line 54), add:
+In `src/devforge/repl.py`, in `parse_user_intent()` after the existing quit block, add:
 
 ```python
     # workflow commands
@@ -1082,6 +1574,11 @@ In `src/devforge/repl.py`, in `parse_user_intent()` after the existing quit bloc
         return UserIntent(kind="log_workflow")
     if lowered in {"wf list", "/wf list"}:
         return UserIntent(kind="list_workflows")
+
+    for prefix in ("wf confirm ", "/wf confirm "):
+        if lowered.startswith(prefix):
+            answer = raw[len(prefix):].strip().lower()
+            return UserIntent(kind="confirm_workflow", payload={"answer": answer})
 
     for prefix in ("wf init ", "/wf init "):
         if lowered.startswith(prefix):
@@ -1157,34 +1654,156 @@ def _render_workflow_list(root: Path) -> list[str]:
         active = " ← active" if wf["id"] == index["active_workflow_id"] else ""
         lines.append(f"  [{wf['status']}] {wf['id']} — {wf['goal']}{active}")
     return lines
+
+
+def _render_pending_plan(root: Path, wf_id: str) -> list[str]:
+    """Render pending plan for user confirmation."""
+    import json
+    plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
+    if not plan_path.exists():
+        return ["No pending plan found."]
+    data = json.loads(plan_path.read_text(encoding="utf-8"))
+    lines = [f"待确认计划: {data.get('summary', '')}", "─" * 50]
+    for i, node in enumerate(data.get("nodes", []), 1):
+        lines.append(f"{i}. {node['id']:<20} → {node['executor']}  ({node.get('goal', '')[:60]})")
+    lines.append("")
+    lines.append("输入 'wf confirm y' 确认 或 'wf confirm n' 拒绝重新规划")
+    return lines
 ```
 
 - [ ] **Step 3: Add `_init_workflow` helper**
 
 ```python
 def _init_workflow(root: Path, name: str) -> list[str]:
-    """Create a new empty workflow and set it as active."""
+    """Create a new workflow with a planner node and set it as active."""
     import re
     from datetime import datetime, timezone
-    from devforge.workflow.store import read_index, write_index, write_manifest
+    from devforge.workflow.models import NodeDefinition, WorkflowManifest
+    from devforge.workflow.store import read_index, write_index, write_manifest, write_node
     slug = re.sub(r"[^\w\u4e00-\u9fff]+", "-", name).strip("-")[:40]
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     wf_id = f"wf-{slug}-{ts}"
-    manifest = {
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    planner_node: NodeDefinition = {
+        "id": "planner",
+        "capability": "planning",
+        "goal": f"分析目标并制定执行计划: {name}",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": "claude_code",
+        "mode": "planning",
+    }
+
+    manifest: WorkflowManifest = {
         "id": wf_id,
         "goal": name,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "nodes": [],
+        "created_at": created_at,
+        "workflow_status": "planning",
+        "nodes": [
+            {
+                "id": "planner",
+                "status": "pending",
+                "depends_on": [],
+                "exit_artifacts": [],
+                "executor": "claude_code",
+                "mode": "planning",
+                "parent_node_id": None,
+                "depth": 0,
+                "attempt_count": 0,
+                "last_started_at": None,
+                "last_completed_at": None,
+                "last_error": None,
+            }
+        ],
     }
     write_manifest(root, wf_id, manifest)
+    write_node(root, wf_id, planner_node)
+
     index = read_index(root)
-    index["workflows"].append({"id": wf_id, "goal": name, "status": "active", "created_at": manifest["created_at"]})
+    # Pause current active workflow
+    for entry in index["workflows"]:
+        if entry["id"] == index.get("active_workflow_id"):
+            entry["status"] = "paused"
+    index["workflows"].append({
+        "id": wf_id,
+        "goal": name,
+        "status": "active",
+        "created_at": created_at,
+    })
     index["active_workflow_id"] = wf_id
     write_index(root, index)
-    return [f"✅ 工作流已创建: {wf_id}", f"目标: {name}", "使用 'wf' 查看状态，'wf run' 开始执行。"]
+
+    return [
+        f"✅ 工作流已创建: {wf_id}",
+        f"目标: {name}",
+        "Planner 节点已就绪。输入 'wf run' 开始规划。",
+    ]
 ```
 
-- [ ] **Step 4: Add wf intent handlers in the main REPL loop**
+- [ ] **Step 4: Add `_confirm_workflow` helper**
+
+```python
+def _confirm_workflow(root: Path, answer: str) -> list[str]:
+    """Handle wf confirm y|n — accept or reject the planner's plan."""
+    import json
+    from devforge.workflow.store import active_workflow_id, read_manifest, write_manifest
+    wf_id = active_workflow_id(root)
+    if not wf_id:
+        return ["No active workflow."]
+    manifest = read_manifest(root, wf_id)
+    if manifest["workflow_status"] != "awaiting_confirm":
+        return ["No pending plan to confirm. Run 'wf' to check status."]
+
+    plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
+    if not plan_path.exists():
+        return ["pending_plan.json missing — cannot confirm."]
+
+    data = json.loads(plan_path.read_text(encoding="utf-8"))
+
+    if answer == "y":
+        # Append new nodes to manifest
+        for node_def in data["nodes"]:
+            manifest["nodes"].append({
+                "id": node_def["id"],
+                "status": "pending",
+                "depends_on": node_def.get("depends_on", []),
+                "exit_artifacts": node_def.get("exit_artifacts", []),
+                "executor": node_def.get("executor", "codex"),
+                "mode": node_def.get("mode", None),
+                "parent_node_id": None,
+                "depth": 1,
+                "attempt_count": 0,
+                "last_started_at": None,
+                "last_completed_at": None,
+                "last_error": None,
+            })
+        plan_path.unlink()
+        manifest["workflow_status"] = "running"
+        write_manifest(root, wf_id, manifest)
+        return [
+            f"✅ 计划已确认，{len(data['nodes'])} 个节点加入工作流。",
+            "输入 'wf run' 开始执行。",
+        ]
+    elif answer == "n":
+        # Delete node files and pending plan, reset planner node
+        import shutil
+        plan_path.unlink(missing_ok=True)
+        for node_def in data["nodes"]:
+            node_file = root / ".devforge" / "workflows" / wf_id / "nodes" / f"{node_def['id']}.json"
+            node_file.unlink(missing_ok=True)
+        for node in manifest["nodes"]:
+            if node["id"] == "planner":
+                node["status"] = "pending"
+                node["last_error"] = None
+        manifest["workflow_status"] = "planning"
+        write_manifest(root, wf_id, manifest)
+        return ["❌ 计划已拒绝，Planner 节点重置为 pending。输入 'wf run' 重新规划。"]
+    else:
+        return ["Usage: wf confirm y | wf confirm n"]
+```
+
+- [ ] **Step 5: Add wf intent handlers in the main REPL loop**
 
 In `run_interactive_session`, after the `if intent.kind == "list_work_packages":` block, add:
 
@@ -1199,8 +1818,20 @@ In `run_interactive_session`, after the `if intent.kind == "list_work_packages":
             result = run_one_cycle(root_path)
             if result["status"] == "no_active_workflow":
                 output_fn("No active workflow. Use 'wf init <name>' first.")
+            elif result["status"] == "manifest_missing":
+                output_fn("⚠ Workflow manifest missing. Check .devforge/workflows/.")
+            elif result["status"] == "awaiting_confirm":
+                from devforge.workflow.store import active_workflow_id as _awf_id
+                wf_id = _awf_id(root_path)
+                if wf_id:
+                    for line in _render_pending_plan(root_path, wf_id):
+                        output_fn(line)
             elif result["status"] == "all_complete":
                 output_fn("✅ Workflow complete — all nodes finished.")
+            elif result["status"] == "workflow_failed":
+                output_fn("❌ Workflow failed — a node exceeded maximum retry attempts.")
+                for line in _render_workflow(root_path):
+                    output_fn(line)
             elif result["status"] == "blocked":
                 output_fn(f"⚠ Blocked — no runnable nodes. Pending: {result.get('pending', [])}")
             else:
@@ -1210,12 +1841,18 @@ In `run_interactive_session`, after the `if intent.kind == "list_work_packages":
             continue
 
         if intent.kind == "init_workflow":
-            name = intent.payload.get("name", "").strip()
+            name = intent.payload.get("name", "").strip() if intent.payload else ""
             if not name:
                 output_fn("Usage: wf init <工作流名称>")
             else:
                 for line in _init_workflow(root_path, name):
                     output_fn(line)
+            continue
+
+        if intent.kind == "confirm_workflow":
+            answer = (intent.payload or {}).get("answer", "")
+            for line in _confirm_workflow(root_path, answer):
+                output_fn(line)
             continue
 
         if intent.kind == "log_workflow":
@@ -1229,7 +1866,7 @@ In `run_interactive_session`, after the `if intent.kind == "list_work_packages":
             continue
 
         if intent.kind == "reset_workflow_node":
-            node_id = intent.payload.get("node_id", "")
+            node_id = (intent.payload or {}).get("node_id", "")
             from devforge.workflow.store import active_workflow_id, read_manifest, write_manifest
             wf_id = active_workflow_id(root_path)
             if not wf_id:
@@ -1239,16 +1876,17 @@ In `run_interactive_session`, after the `if intent.kind == "list_work_packages":
                 for n in manifest["nodes"]:
                     if n["id"] == node_id:
                         n["status"] = "pending"
-                        n["error"] = None
+                        n["last_error"] = None
                         write_manifest(root_path, wf_id, manifest)
                         output_fn(f"✅ Node '{node_id}' reset to pending.")
+                        output_fn("Note: if old artifact files exist, reconcile will mark it completed again — delete them first.")
                         break
                 else:
                     output_fn(f"Node '{node_id}' not found in active workflow.")
             continue
 
         if intent.kind == "switch_workflow":
-            wf_id = intent.payload.get("wf_id", "")
+            wf_id = (intent.payload or {}).get("wf_id", "")
             from devforge.workflow.store import read_index, write_index
             index = read_index(root_path)
             ids = [w["id"] for w in index["workflows"]]
@@ -1263,9 +1901,9 @@ In `run_interactive_session`, after the `if intent.kind == "list_work_packages":
             continue
 ```
 
-- [ ] **Step 5: Update startup goal integration**
+- [ ] **Step 6: Update startup goal integration**
 
-In `run_interactive_session`, update the block after the goal prompt:
+In `run_interactive_session`, update the block after the goal prompt to show workflow status on startup if active:
 
 ```python
     if goal:
@@ -1282,30 +1920,30 @@ In `run_interactive_session`, update the block after the goal prompt:
             output_fn(line)
 ```
 
-- [ ] **Step 6: Run the full test suite**
+- [ ] **Step 7: Run the full test suite**
 
 ```bash
 uv run python -m pytest -q
 ```
 
-Expected: all passing (wf commands are UI-only, not unit-tested directly)
+Expected: all passing
 
-- [ ] **Step 7: Manual smoke test**
+- [ ] **Step 8: Manual smoke test**
 
 ```bash
 make install
 devforge
 # at the devforge> prompt:
 wf list          # → No workflows found.
-wf init 逆向分析  # → ✅ 工作流已创建
-wf              # → shows DAG (0 nodes)
-wf log          # → No transitions recorded yet.
+wf init 逆向分析  # → ✅ 工作流已创建, Planner 节点已就绪
+wf               # → shows DAG with 1 pending planner node
+wf log           # → No transitions recorded yet.
 q
 ```
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/devforge/repl.py src/devforge/session.py
-git commit -m "feat: add wf commands to REPL (show, run, init, log, list, reset, switch)"
+git commit -m "feat: add wf commands to REPL (show, run, init, confirm, log, list, reset, switch)"
 ```
