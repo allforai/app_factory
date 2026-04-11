@@ -75,7 +75,9 @@ def validate_workflow(nodes: list[NodeDefinition], root: Path | None = None) -> 
             if dep not in visited:
                 dfs(dep)
             elif dep in in_stack:
-                raise ValueError(f"cyclic dependency detected involving node '{dep}'")
+                raise ValueError(
+                    f"cyclic dependency detected: '{node_id}' -> '{dep}' closes a cycle"
+                )
         in_stack.discard(node_id)
 
     for node_id in ids:
