@@ -76,6 +76,7 @@ DevForge 当前有两套执行机制：
   "id": "wf-逆向分析-20260411",
   "goal": "逆向分析 DevForge 项目",
   "created_at": "<ISO timestamp>",
+  "workflow_status": "planning | awaiting_confirm | running | complete | failed",
   "nodes": [
     {
       "id": "discover",
@@ -100,9 +101,12 @@ DevForge 当前有两套执行机制：
   "goal": "扫描代码库，建立模块清单",
   "exit_artifacts": [".devforge/artifacts/source-summary.json"],
   "knowledge_refs": ["src/devforge/knowledge/content/capabilities/discovery.md"],
-  "executor": "codex"
+  "executor": "codex",
+  "mode": null
 }
 ```
+
+`mode` 为 `null` 表示普通执行节点；`"planning"` 表示 Planner 节点，输出子节点列表而非 artifact。
 
 ### `transitions.jsonl`（每行一条）
 
@@ -306,8 +310,103 @@ Workflow: 逆向分析 DevForge 项目  [wf-逆向分析-20260411]
 
 ---
 
+## 集中交互模式（Human-in-the-loop Planning）
+
+**核心设计目标：** 启动时一次性把所有问题问清楚，确认后全自动执行，中间不再打断用户。
+
+### 流程
+
+```
+devforge 启动
+  → 显示当前状态（已有 workflow → 展示进度）
+  → 询问"当前目标"
+  → 目标确认后，运行 Planner 节点（claude_code, mode=planning）
+      Planner 输出：结构化节点列表（id/goal/executor/depends_on）
+  → 引擎暂停，展示计划给用户确认：
+      "准备执行以下节点，是否开始？[y/n/修改]"
+      1. discover      → codex
+      2. analyze       → claude_code
+      3. implement     → codex
+  → 用户输入 y → 创建节点 → 全自动执行至完成
+  → 完成后输出汇总报告，不再询问
+```
+
+### 特殊节点类型：`planning`
+
+`planning` 节点是工作流的入口节点，输出不是 artifact 文件，而是子节点定义列表。引擎识别到 `planning` 节点完成后，进入"等待确认"状态而非继续执行。
+
+**`nodes/planner.json` 示例：**
+
+```json
+{
+  "id": "planner",
+  "capability": "planning",
+  "goal": "分析目标，制定执行节点计划",
+  "exit_artifacts": [],
+  "knowledge_refs": [],
+  "executor": "claude_code",
+  "mode": "planning"
+}
+```
+
+**Planner 输出格式**（stdout JSON）：
+
+```json
+{
+  "nodes": [
+    {
+      "id": "discover",
+      "capability": "discovery",
+      "goal": "扫描代码库结构",
+      "executor": "codex",
+      "depends_on": [],
+      "exit_artifacts": [".devforge/artifacts/source-summary.json"],
+      "knowledge_refs": []
+    }
+  ],
+  "summary": "计划包含 3 个节点，预计覆盖 discover → analyze → implement"
+}
+```
+
+### 引擎状态扩展
+
+`manifest.json` 新增 `workflow_status` 字段：
+
+```json
+{
+  "workflow_status": "planning | awaiting_confirm | running | complete | failed"
+}
+```
+
+- `planning`：Planner 节点正在执行
+- `awaiting_confirm`：Planner 完成，等待用户确认节点计划
+- `running`：用户确认，全自动执行中
+- `complete` / `failed`：终态
+
+### REPL 交互
+
+确认界面（`wf run` 触发 Planner 后自动展示）：
+
+```
+Planner 已生成执行计划：
+────────────────────────────────
+  1. discover      codex       扫描代码库结构
+  2. analyze       claude_code 分析模块依赖
+  3. implement     codex       实现核心功能
+
+输入 y 开始执行，n 取消，或输入节点编号修改：
+```
+
+用户输入 `y` 后，引擎设置 `workflow_status = running`，顺序执行所有节点，不再暂停。
+
+### 与子项目 2 的关系
+
+本子项目实现 Planner 节点 + 确认流程的骨架（planning 节点类型、awaiting_confirm 状态、用户确认 REPL 交互）。子项目 2 在此基础上加入运行时动态分化（节点执行过程中再次 spawn 子节点）。
+
+---
+
 ## 不在本子项目范围内
 
-- 动态节点分化（子项目 2）
+- 运行时动态节点分化（子项目 2）——Planner 是静态预规划，子项目 2 是执行中分化
 - 内置工作流模板 + 知识库迁移（子项目 3）
 - 并发执行（顺序执行即可，并发在子项目 2 引入）
