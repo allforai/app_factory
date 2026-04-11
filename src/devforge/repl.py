@@ -318,7 +318,6 @@ def _render_workflow_list(root: Path) -> list[str]:
 
 def _render_pending_plan(root: Path, wf_id: str) -> list[str]:
     """Render pending plan for user confirmation."""
-    import json
     plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
     if not plan_path.exists():
         return ["No pending plan found."]
@@ -412,7 +411,6 @@ def _init_workflow(root: Path, name: str) -> list[str]:
 
 def _confirm_workflow(root: Path, answer: str) -> list[str]:
     """Handle wf confirm y|n — accept or reject the planner's plan."""
-    import json
     from devforge.workflow.store import active_workflow_id, read_manifest, write_manifest
     wf_id = active_workflow_id(root)
     if not wf_id:

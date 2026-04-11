@@ -41,6 +41,7 @@ IntentKind = Literal[
     "apply_run_result",
     "merge_run_results",
     "input_information",
+    "list_work_packages",
     "quit_session",
     # workflow engine
     "show_workflow",
