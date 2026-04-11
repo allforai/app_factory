@@ -52,3 +52,10 @@ def test_xcuitest_has_capability_matrix():
     for layer in ["element_discovery", "gesture", "keyboard_ime", "scroll_container"]:
         assert layer in content, f"xcuitest.md 缺少层: {layer}"
     assert "accessibilityIdentifier" in content
+
+
+def test_patrol_has_capability_matrix():
+    content = (KNOWLEDGE_ROOT / "frameworks" / "patrol.md").read_text()
+    for layer in ["keyboard_ime", "scroll_container", "cross_app"]:
+        assert layer in content, f"patrol.md 缺少层: {layer}"
+    assert "ValueKey" in content or "Semantics" in content
