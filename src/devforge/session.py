@@ -42,6 +42,15 @@ IntentKind = Literal[
     "merge_run_results",
     "input_information",
     "quit_session",
+    # workflow engine
+    "show_workflow",
+    "run_workflow",
+    "init_workflow",
+    "confirm_workflow",
+    "log_workflow",
+    "reset_workflow_node",
+    "list_workflows",
+    "switch_workflow",
 ]
 
 TransitionObjectType = Literal[
