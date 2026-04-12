@@ -350,9 +350,10 @@ def _init_workflow(root: Path, name: str) -> list[str]:
 - 示例（好）："扫描 src/ 目录，将模块列表写入 .devforge/artifacts/modules.json，格式: {{"modules":[{{"name","path","description"}}]}}"
 - 示例（差）："扫描代码库" — 路径和输出格式不明确，执行器可能需要交互确认
 
-输出格式（stdout，必须是合法 JSON，无其他内容）：
+上下文：如果 .devforge/artifacts/codebase_snapshot.json 存在，请先读取它了解项目结构，再制定计划。
+
 Use executor="claude_code" for all nodes. Do not use codex.
-{{"nodes": [{{"id": "...", "capability": "...", "goal": "...", "exit_artifacts": ["..."], "knowledge_refs": [], "executor": "claude_code", "mode": null, "depends_on": []}}], "summary": "..."}}
+Plan JSON structure: {{"nodes": [{{"id": "...", "capability": "...", "goal": "...", "exit_artifacts": ["..."], "knowledge_refs": [], "executor": "claude_code", "mode": null, "depends_on": []}}], "summary": "..."}}
 """
     planner_node: NodeDefinition = {
         "id": "planner",

@@ -71,7 +71,7 @@ def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManif
     """
     updated = copy.deepcopy(manifest)
     for node in updated["nodes"]:
-        if node.get("mode") == "planning":
+        if node.get("mode") in ("planning", "discovery"):
             continue
 
         if node["status"] == "running" and node.get("pid") is not None:
@@ -183,6 +183,117 @@ def _dispatch_node_async(
     )
     log_fh.close()
     return proc, log_path
+
+
+def _dispatch_planning_node_with_tools(
+    node: NodeDefinition, root: Path, wf_id: str,
+) -> dict[str, Any]:
+    """Run a planning node with full claude code tool access.
+
+    Claude reads the codebase and writes pending_plan.json directly.
+    """
+    plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+
+    prompt = f"""{node['goal']}
+
+## Your task as planner
+
+You have full access to the codebase at {root}. Before planning:
+1. Run: ls -la {root} to see project structure
+2. Read key files: README.md, pyproject.toml/package.json/go.mod (whichever exists), any existing source directories
+3. Check if {root}/.devforge/artifacts/codebase_snapshot.json exists and read it for context from previous runs
+
+Then create the execution plan and write it as JSON to this exact path:
+{plan_path}
+
+The JSON must have this structure:
+{{"nodes": [{{"id": "node-id-slug", "capability": "coding", "goal": "Self-contained goal with exact file paths, function signatures, no ambiguity", "exit_artifacts": ["relative/path/to/output.py"], "knowledge_refs": [], "executor": "claude_code", "mode": null, "depends_on": ["other-node-id"]}}], "summary": "One sentence summary of the plan"}}
+
+Rules:
+- Each node goal must be fully self-contained (no "as discussed above" references)
+- exit_artifacts paths are relative to {root}
+- Use executor="claude_code" for all nodes
+- depends_on must reference node ids defined in the same plan
+- Write the file, don't print the JSON to stdout
+"""
+    prompt = prompt + _NON_INTERACTIVE_SUFFIX
+
+    cmd = [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Write,Edit,Bash",
+        "-p", prompt,
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd, cwd=root, capture_output=True, text=True,
+            timeout=_EXECUTOR_TIMEOUT,
+        )
+        return {
+            "returncode": proc.returncode,
+            "output": (proc.stdout or proc.stderr or "").strip(),
+            "executor": "claude_code",
+            "plan_written": plan_path.exists(),
+        }
+    except subprocess.TimeoutExpired:
+        return {"returncode": 1, "output": f"planner timeout after {_EXECUTOR_TIMEOUT}s", "executor": "claude_code", "plan_written": False}
+    except FileNotFoundError:
+        return {"returncode": 1, "output": "claude not found on PATH", "executor": "claude_code", "plan_written": False}
+
+
+def _dispatch_discovery_node(
+    node: NodeDefinition, root: Path,
+) -> dict[str, Any]:
+    """Run a codebase discovery node with full tool access.
+
+    Claude scans the codebase and writes .devforge/artifacts/codebase_snapshot.json
+    with incremental update support.
+    """
+    snapshot_path = root / ".devforge" / "artifacts" / "codebase_snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_snapshot = ""
+    if snapshot_path.exists():
+        existing_snapshot = f"""
+A previous snapshot exists at {snapshot_path}.
+Read it first, then only re-scan files that have changed since the snapshot's "scanned_at" timestamp.
+Update the snapshot with new/changed files only (incremental update).
+"""
+
+    prompt = f"""Analyze the codebase at {root} and write a structured snapshot to {snapshot_path}.
+
+{existing_snapshot}
+
+The snapshot JSON must have this structure:
+{{"scanned_at": "ISO timestamp", "root": "{root}", "structure": {{"directories": ["list of key directories"], "entry_points": ["main files, CLI entry points"], "tech_stack": ["Python", "FastAPI", "etc"], "key_files": ["important files to understand the project"]}}, "modules": [{{"path": "relative/path/to/file.py", "purpose": "one line description", "exports": ["function/class names"], "depends_on": ["other/module.py"]}}], "existing_tests": ["list of test files"], "open_todos": ["any TODO/FIXME found in code"]}}
+
+Scan the codebase thoroughly. Read source files. Write the snapshot file directly.
+"""
+    prompt = prompt + _NON_INTERACTIVE_SUFFIX
+
+    cmd = [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Write,Bash",
+        "-p", prompt,
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd, cwd=root, capture_output=True, text=True,
+            timeout=_EXECUTOR_TIMEOUT,
+        )
+        return {
+            "returncode": proc.returncode,
+            "output": (proc.stdout or proc.stderr or "").strip(),
+            "executor": "claude_code",
+        }
+    except subprocess.TimeoutExpired:
+        return {"returncode": 1, "output": f"discovery timeout after {_EXECUTOR_TIMEOUT}s", "executor": "claude_code"}
+    except FileNotFoundError:
+        return {"returncode": 1, "output": "claude not found on PATH", "executor": "claude_code"}
 
 
 def _write_run_log(root: Path, wf_id: str, node_id: str, started_at: str,

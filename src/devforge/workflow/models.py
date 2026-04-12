@@ -12,7 +12,7 @@ WorkflowPhase = Literal["planning", "awaiting_confirm", "running", "complete", "
 # User-visible lifecycle status (stored in index.json per workflow)
 WorkflowStatus = Literal["active", "complete", "paused", "failed"]
 
-NodeMode = Literal["planning"]
+NodeMode = Literal["planning", "discovery"]
 
 TransitionStatus = Literal["completed", "failed"]
 

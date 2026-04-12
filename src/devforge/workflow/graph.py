@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import re
-import subprocess
 from pathlib import Path
 from typing import TypedDict
 
@@ -62,55 +59,29 @@ def _dispatch_planning_node(
     entry: dict, node_def: dict, root: Path, wf_id: str, manifest: dict,
     started_at: str, dispatched: list[str],
 ) -> dict | None:
-    """Dispatch a planning node synchronously. Returns early-exit dict or None."""
-    try:
-        result = _engine._dispatch_node(node_def, root)
-        returncode = result["returncode"]
-        output = result.get("output", "")
-    except FileNotFoundError:
-        returncode = 1
-        output = f"executor not found: {node_def.get('executor', 'codex')}"
-    except subprocess.TimeoutExpired:
-        from devforge.workflow.engine import _EXECUTOR_TIMEOUT
-        returncode = 1
-        output = f"executor timeout after {_EXECUTOR_TIMEOUT}s"
+    """Dispatch a planning node with full tool access. Returns early-exit dict or None."""
+    result = _engine._dispatch_planning_node_with_tools(node_def, root, wf_id)
+    returncode = result["returncode"]
+    output = result.get("output", "")
+    plan_written = result.get("plan_written", False)
 
     completed_at = _now()
     entry["last_completed_at"] = completed_at
 
-    if returncode == 0:
+    if returncode == 0 and plan_written:
         entry["status"] = "completed"
         entry["last_error"] = None
-
-        plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
-        plan_path.parent.mkdir(parents=True, exist_ok=True)
-        saved = False
-        if output:
-            try:
-                plan_data = json.loads(output)
-                plan_path.write_text(json.dumps(plan_data, indent=2, ensure_ascii=False), encoding="utf-8")
-                saved = True
-            except json.JSONDecodeError:
-                match = re.search(r'\{[\s\S]*"nodes"\s*:\s*\[[\s\S]*\]\s*[\s\S]*\}', output)
-                if match:
-                    try:
-                        plan_data = json.loads(match.group())
-                        plan_path.write_text(json.dumps(plan_data, indent=2, ensure_ascii=False), encoding="utf-8")
-                        saved = True
-                    except json.JSONDecodeError:
-                        pass
-        if saved:
-            manifest["workflow_status"] = "awaiting_confirm"
-        else:
-            entry["last_error"] = "planner output was not valid JSON"
-            entry["status"] = "failed"
+        manifest["workflow_status"] = "awaiting_confirm"
+    elif returncode == 0 and not plan_written:
+        entry["status"] = "failed"
+        entry["last_error"] = "planner exited 0 but did not write pending_plan.json"
     else:
         entry["status"] = "failed"
         entry["last_error"] = output[:500] if output else "non-zero exit"
 
     transition = {
         "node": entry["id"],
-        "status": "completed" if returncode == 0 else "failed",
+        "status": entry["status"],
         "started_at": started_at,
         "completed_at": completed_at,
         "artifacts_created": node_def.get("exit_artifacts", []),
@@ -121,7 +92,51 @@ def _dispatch_planning_node(
 
     _write_run_log(
         root, wf_id, entry["id"], started_at,
-        node_def.get("executor", "codex"), returncode, output,
+        result.get("executor", "claude_code"), returncode, output,
+    )
+
+    if entry["status"] == "failed" and entry["attempt_count"] >= MAX_ATTEMPTS:
+        manifest["workflow_status"] = "failed"
+        write_manifest(root, wf_id, manifest)
+        _sync_index_status(root, wf_id, "failed")
+        _write_status_json(root, wf_id, manifest, dispatched)
+        return {"manifest": manifest, "dispatched": dispatched, "cycle_result": "workflow_failed"}
+    return None
+
+
+def _dispatch_discovery_node_sync(
+    entry: dict, node_def: dict, root: Path, wf_id: str, manifest: dict,
+    started_at: str, dispatched: list[str],
+) -> dict | None:
+    """Dispatch a discovery node synchronously. Returns early-exit dict or None."""
+    result = _engine._dispatch_discovery_node(node_def, root)
+    returncode = result["returncode"]
+    output = result.get("output", "")
+
+    completed_at = _now()
+    entry["last_completed_at"] = completed_at
+
+    if returncode == 0:
+        entry["status"] = "completed"
+        entry["last_error"] = None
+    else:
+        entry["status"] = "failed"
+        entry["last_error"] = output[:500] if output else "non-zero exit"
+
+    transition = {
+        "node": entry["id"],
+        "status": entry["status"],
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "artifacts_created": node_def.get("exit_artifacts", []),
+        "error": entry["last_error"],
+    }
+    append_transition(root, wf_id, transition)
+    dispatched.append(entry["id"])
+
+    _write_run_log(
+        root, wf_id, entry["id"], started_at,
+        result.get("executor", "claude_code"), returncode, output,
     )
 
     if entry["status"] == "failed" and entry["attempt_count"] >= MAX_ATTEMPTS:
@@ -150,6 +165,13 @@ def dispatch_nodes_node(state: WorkflowState) -> dict:
         if node_def.get("mode") == "planning":
             write_manifest(root, wf_id, manifest)
             early = _dispatch_planning_node(
+                entry, node_def, root, wf_id, manifest, started_at, dispatched,
+            )
+            if early is not None:
+                return early
+        elif node_def.get("mode") == "discovery":
+            write_manifest(root, wf_id, manifest)
+            early = _dispatch_discovery_node_sync(
                 entry, node_def, root, wf_id, manifest, started_at, dispatched,
             )
             if early is not None:

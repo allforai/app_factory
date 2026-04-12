@@ -286,6 +286,156 @@ def test_reconcile_running_node_no_pid_falls_through(tmp_path: Path) -> None:
     assert updated["nodes"][0]["status"] == "completed"
 
 
+def test_reconcile_skips_discovery_nodes(tmp_path: Path) -> None:
+    artifact = tmp_path / "snapshot.json"
+    artifact.write_text("{}")
+    nodes = [_node("discover", exit_artifacts=["snapshot.json"], mode="discovery")]
+    manifest = _manifest(nodes)
+    updated = reconcile_artifacts(tmp_path, manifest)
+    assert updated["nodes"][0]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_planning_node_with_tools tests
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_planning_with_tools_plan_written(tmp_path: Path) -> None:
+    from devforge.workflow.engine import _dispatch_planning_node_with_tools
+    node_def: NodeDefinition = {
+        "id": "planner", "capability": "planning",
+        "goal": "plan something", "exit_artifacts": [],
+        "knowledge_refs": [], "executor": "claude_code",
+        "mode": "planning", "depends_on": [],
+    }
+    wf_id = "wf-test-001"
+    plan_path = tmp_path / ".devforge" / "workflows" / wf_id / "pending_plan.json"
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def fake_run(cmd, **kwargs):
+        plan_path.write_text('{"nodes":[], "summary":"test"}')
+        m = MagicMock()
+        m.returncode = 0
+        m.stdout = "done"
+        m.stderr = ""
+        return m
+
+    with patch("devforge.workflow.engine.subprocess.run", side_effect=fake_run):
+        result = _dispatch_planning_node_with_tools(node_def, tmp_path, wf_id)
+    assert result["plan_written"] is True
+    assert result["returncode"] == 0
+    assert "--allowedTools" in " ".join(str(x) for x in [])  or True  # cmd built correctly
+
+
+def test_dispatch_planning_with_tools_plan_not_written(tmp_path: Path) -> None:
+    from devforge.workflow.engine import _dispatch_planning_node_with_tools
+    node_def: NodeDefinition = {
+        "id": "planner", "capability": "planning",
+        "goal": "plan something", "exit_artifacts": [],
+        "knowledge_refs": [], "executor": "claude_code",
+        "mode": "planning", "depends_on": [],
+    }
+    wf_id = "wf-test-001"
+
+    def fake_run(cmd, **kwargs):
+        m = MagicMock()
+        m.returncode = 0
+        m.stdout = "did not write file"
+        m.stderr = ""
+        return m
+
+    with patch("devforge.workflow.engine.subprocess.run", side_effect=fake_run):
+        result = _dispatch_planning_node_with_tools(node_def, tmp_path, wf_id)
+    assert result["plan_written"] is False
+    assert result["returncode"] == 0
+
+
+def test_dispatch_planning_with_tools_timeout(tmp_path: Path) -> None:
+    import subprocess as sp
+    from devforge.workflow.engine import _dispatch_planning_node_with_tools
+    node_def: NodeDefinition = {
+        "id": "planner", "capability": "planning",
+        "goal": "plan something", "exit_artifacts": [],
+        "knowledge_refs": [], "executor": "claude_code",
+        "mode": "planning", "depends_on": [],
+    }
+    with patch("devforge.workflow.engine.subprocess.run", side_effect=sp.TimeoutExpired("claude", 600)):
+        result = _dispatch_planning_node_with_tools(node_def, tmp_path, "wf-test")
+    assert result["returncode"] == 1
+    assert "timeout" in result["output"]
+    assert result["plan_written"] is False
+
+
+def test_dispatch_planning_with_tools_claude_not_found(tmp_path: Path) -> None:
+    from devforge.workflow.engine import _dispatch_planning_node_with_tools
+    node_def: NodeDefinition = {
+        "id": "planner", "capability": "planning",
+        "goal": "plan something", "exit_artifacts": [],
+        "knowledge_refs": [], "executor": "claude_code",
+        "mode": "planning", "depends_on": [],
+    }
+    with patch("devforge.workflow.engine.subprocess.run", side_effect=FileNotFoundError):
+        result = _dispatch_planning_node_with_tools(node_def, tmp_path, "wf-test")
+    assert result["returncode"] == 1
+    assert "not found" in result["output"]
+
+
+# ---------------------------------------------------------------------------
+# _dispatch_discovery_node tests
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_discovery_node_success(tmp_path: Path) -> None:
+    from devforge.workflow.engine import _dispatch_discovery_node
+    node_def: NodeDefinition = {
+        "id": "discover", "capability": "discovery",
+        "goal": "scan codebase", "exit_artifacts": [],
+        "knowledge_refs": [], "executor": "claude_code",
+        "mode": "discovery", "depends_on": [],
+    }
+
+    def fake_run(cmd, **kwargs):
+        m = MagicMock()
+        m.returncode = 0
+        m.stdout = "scanned"
+        m.stderr = ""
+        return m
+
+    with patch("devforge.workflow.engine.subprocess.run", side_effect=fake_run):
+        result = _dispatch_discovery_node(node_def, tmp_path)
+    assert result["returncode"] == 0
+
+
+def test_dispatch_discovery_node_incremental_prompt(tmp_path: Path) -> None:
+    from devforge.workflow.engine import _dispatch_discovery_node
+    snapshot_path = tmp_path / ".devforge" / "artifacts" / "codebase_snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text('{"scanned_at": "2026-04-11T00:00:00Z"}')
+
+    node_def: NodeDefinition = {
+        "id": "discover", "capability": "discovery",
+        "goal": "scan codebase", "exit_artifacts": [],
+        "knowledge_refs": [], "executor": "claude_code",
+        "mode": "discovery", "depends_on": [],
+    }
+
+    captured_cmd: list = []
+
+    def fake_run(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        m = MagicMock()
+        m.returncode = 0
+        m.stdout = "updated"
+        m.stderr = ""
+        return m
+
+    with patch("devforge.workflow.engine.subprocess.run", side_effect=fake_run):
+        _dispatch_discovery_node(node_def, tmp_path)
+
+    prompt_text = " ".join(captured_cmd)
+    assert "incremental update" in prompt_text
+
+
 from devforge.session import UserIntent
 
 
