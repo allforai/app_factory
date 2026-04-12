@@ -1050,7 +1050,13 @@ def _run_wf_command(args: Any, cwd: Path) -> int:
             if node["id"] == args.node_id:
                 node["status"] = "pending"
                 node["last_error"] = None
+                node["attempt_count"] = 0
                 write_manifest(cwd, wf_id, manifest)
+                if manifest["workflow_status"] == "failed":
+                    manifest["workflow_status"] = "running"
+                    write_manifest(cwd, wf_id, manifest)
+                    from devforge.workflow.engine import _sync_index_status
+                    _sync_index_status(cwd, wf_id, "active")
                 print(f"✅ Node '{args.node_id}' reset to pending.")
                 return 0
         print(f"Node '{args.node_id}' not found in active workflow.")

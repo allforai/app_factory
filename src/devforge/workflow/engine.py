@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -93,7 +94,7 @@ _NON_INTERACTIVE_SUFFIX = """
 - 不要提问，不要要求审查
 """
 
-_EXECUTOR_TIMEOUT = 300  # seconds
+_EXECUTOR_TIMEOUT = int(os.environ.get("DEVFORGE_EXECUTOR_TIMEOUT", "600"))
 
 
 def _dispatch_node(node: NodeDefinition, root: Path) -> dict[str, Any]:
@@ -107,7 +108,7 @@ def _dispatch_node(node: NodeDefinition, root: Path) -> dict[str, Any]:
     if executor == "codex":
         cmd = build_codex_command(prompt=prompt, working_dir=str(root))
     else:
-        cmd = ["claude", "--print", prompt]
+        cmd = ["claude", "--print", "--dangerously-skip-permissions", prompt]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=root, timeout=_EXECUTOR_TIMEOUT)
     return {
         "returncode": proc.returncode,
@@ -232,6 +233,17 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
     if not candidates:
         pending = [n["id"] for n in manifest["nodes"] if n["status"] == "pending"]
         running = [n["id"] for n in manifest["nodes"] if n["status"] == "running"]
+        if not running:
+            exhausted = [
+                n["id"] for n in manifest["nodes"]
+                if n["status"] == "failed" and n.get("attempt_count", 0) >= MAX_ATTEMPTS
+            ]
+            if exhausted:
+                manifest["workflow_status"] = "failed"
+                write_manifest(root, wf_id, manifest)
+                _sync_index_status(root, wf_id, "failed")
+                _write_status_json(root, wf_id, manifest, [])
+                return {"status": "workflow_failed", "dispatched": [], "blocked_by": exhausted}
         write_manifest(root, wf_id, manifest)
         _write_status_json(root, wf_id, manifest, [])
         return {"status": "blocked", "dispatched": [], "pending": pending, "running": running}

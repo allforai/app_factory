@@ -271,7 +271,8 @@ def _render_workflow(root: Path) -> list[str]:
         return [f"Workflow {wf_id} manifest missing."]
     completed = sum(1 for n in manifest["nodes"] if n["status"] == "completed")
     total = len(manifest["nodes"])
-    lines = [f"Workflow: {manifest['goal']}  [{wf_id}]", "─" * 50]
+    goal_display = manifest['goal'][:80] + "…" if len(manifest['goal']) > 80 else manifest['goal']
+    lines = [f"Workflow: {goal_display}  [{wf_id}]", "─" * 50]
     icons = {"completed": "✅", "running": "🔄", "failed": "❌", "pending": "⏳"}
     for node in manifest["nodes"]:
         icon = icons.get(node["status"], "?")
@@ -751,6 +752,11 @@ def run_interactive_session(
                         n["status"] = "pending"
                         n["last_error"] = None
                         write_manifest(root_path, wf_id, manifest)
+                        if manifest["workflow_status"] == "failed":
+                            manifest["workflow_status"] = "running"
+                            write_manifest(root_path, wf_id, manifest)
+                            from devforge.workflow.engine import _sync_index_status
+                            _sync_index_status(root_path, wf_id, "active")
                         output_fn(f"✅ Node '{node_id}' reset to pending.")
                         output_fn("Note: if old artifact files exist, reconcile will mark it completed again — delete them first.")
                         break
