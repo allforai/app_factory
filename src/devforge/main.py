@@ -929,7 +929,135 @@ def build_cli_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("setup", help="Configure API keys saved to ~/.devforge/.env.")
 
+    # wf sub-command group
+    wf_parser = subparsers.add_parser("wf", help="Manage file-based DAG workflows (wf init/run/confirm/show/log/list/reset).")
+    wf_sub = wf_parser.add_subparsers(dest="wf_command", required=True)
+
+    wf_init = wf_sub.add_parser("init", help="Create a new workflow with a planner node.")
+    wf_init.add_argument("goal", nargs="+", help="Workflow goal (can be multiple words).")
+
+    wf_sub.add_parser("run", help="Advance the active workflow by one cycle.")
+
+    wf_confirm = wf_sub.add_parser("confirm", help="Accept or reject the planner's plan.")
+    wf_confirm.add_argument("answer", choices=["y", "n"], help="y to accept, n to reject.")
+
+    wf_sub.add_parser("show", help="Show the current workflow status (DAG view).")
+
+    wf_sub.add_parser("log", help="Show the last 20 transition log entries.")
+
+    wf_sub.add_parser("list", help="List all workflows.")
+
+    wf_reset = wf_sub.add_parser("reset", help="Reset a failed node back to pending.")
+    wf_reset.add_argument("node_id", help="Node ID to reset.")
+
     return parser
+
+
+def _run_wf_command(args: Any, cwd: Path) -> int:
+    """Dispatch devforge wf <subcommand>."""
+    from devforge.repl import (
+        _init_workflow,
+        _confirm_workflow,
+        _render_workflow,
+        _render_workflow_log,
+        _render_workflow_list,
+    )
+    from devforge.workflow.engine import run_one_cycle
+    from devforge.workflow.store import active_workflow_id, read_manifest, write_manifest
+
+    wf_cmd = args.wf_command
+
+    if wf_cmd == "init":
+        goal = " ".join(args.goal)
+        lines = _init_workflow(cwd, goal)
+        print("\n".join(lines))
+        return 0
+
+    if wf_cmd == "run":
+        result = run_one_cycle(cwd)
+        status = result["status"]
+        dispatched = result.get("dispatched", [])
+        if status == "no_active_workflow":
+            print("No active workflow. Run: devforge wf init <goal>")
+            return 1
+        if status == "manifest_missing":
+            print("⚠ Workflow manifest missing. Check .devforge/workflows/.")
+            return 1
+        if status == "awaiting_confirm":
+            wf_id = active_workflow_id(cwd)
+            print("⏳ Awaiting plan confirmation.")
+            if wf_id:
+                plan_path = cwd / ".devforge" / "workflows" / wf_id / "pending_plan.json"
+                if plan_path.exists():
+                    import json as _json
+                    plan = _json.loads(plan_path.read_text(encoding="utf-8"))
+                    print(f"\nPlanned {len(plan.get('nodes', []))} nodes:")
+                    for i, n in enumerate(plan.get("nodes", []), 1):
+                        deps = ", ".join(n.get("depends_on", [])) or "—"
+                        print(f"  {i}. [{n.get('executor','codex')}] {n['id']}  (depends: {deps})")
+                        print(f"     {n['goal'][:120]}{'...' if len(n['goal']) > 120 else ''}")
+            print("\nRun: devforge wf confirm y  (or n to reject)")
+            return 0
+        if status == "all_complete":
+            print("✅ Workflow complete — all nodes finished.")
+            return 0
+        if status == "workflow_failed":
+            print("❌ Workflow failed — a node exceeded maximum retry attempts.")
+            return 1
+        if status == "blocked":
+            pending = result.get("pending", [])
+            running = result.get("running", [])
+            print(f"⚠ Blocked — no runnable nodes.")
+            if pending:
+                print(f"  Pending (deps unmet or max retries): {', '.join(pending)}")
+            if running:
+                print(f"  Running: {', '.join(running)}")
+            return 0
+        # status == "ok"
+        if dispatched:
+            print(f"▶ Dispatched: {', '.join(dispatched)}")
+        else:
+            print("No nodes dispatched this cycle.")
+        return 0
+
+    if wf_cmd == "confirm":
+        lines = _confirm_workflow(cwd, args.answer)
+        print("\n".join(lines))
+        return 0
+
+    if wf_cmd == "show":
+        lines = _render_workflow(cwd)
+        print("\n".join(lines))
+        return 0
+
+    if wf_cmd == "log":
+        lines = _render_workflow_log(cwd)
+        print("\n".join(lines))
+        return 0
+
+    if wf_cmd == "list":
+        lines = _render_workflow_list(cwd)
+        print("\n".join(lines))
+        return 0
+
+    if wf_cmd == "reset":
+        wf_id = active_workflow_id(cwd)
+        if not wf_id:
+            print("No active workflow.")
+            return 1
+        manifest = read_manifest(cwd, wf_id)
+        for node in manifest["nodes"]:
+            if node["id"] == args.node_id:
+                node["status"] = "pending"
+                node["last_error"] = None
+                write_manifest(cwd, wf_id, manifest)
+                print(f"✅ Node '{args.node_id}' reset to pending.")
+                return 0
+        print(f"Node '{args.node_id}' not found in active workflow.")
+        return 1
+
+    print(f"Unknown wf subcommand: {wf_cmd}")
+    return 2
 
 
 def _run_setup() -> int:
@@ -1033,6 +1161,8 @@ def main(argv: list[str] | None = None) -> int:
         result = run_executor_doctor(cwd=Path.cwd())
     elif args.command == "setup":
         return _run_setup()
+    elif args.command == "wf":
+        return _run_wf_command(args, Path.cwd())
     else:
         parser.error(f"unsupported command: {args.command}")
         return 2

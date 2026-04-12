@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
+import json
 from devforge.workflow.artifacts import check_artifacts
 from devforge.executors.subprocess_transport import build_codex_command
 from devforge.workflow.models import (
@@ -32,7 +32,7 @@ MAX_ATTEMPTS = 3
 
 
 def select_next_nodes(manifest: WorkflowManifest) -> list[NodeManifestEntry]:
-    """Return nodes that are ready to run (pending + deps met + under concurrency limit)."""
+    """Return nodes that are ready to run (pending or retryable-failed + deps met + under concurrency limit)."""
     completed_ids = {n["id"] for n in manifest["nodes"] if n["status"] == "completed"}
     running_count = sum(1 for n in manifest["nodes"] if n["status"] == "running")
     slots = MAX_CONCURRENT - running_count
@@ -40,7 +40,8 @@ def select_next_nodes(manifest: WorkflowManifest) -> list[NodeManifestEntry]:
         return []
     return [
         n for n in manifest["nodes"]
-        if n["status"] == "pending"
+        if n["status"] in ("pending", "failed")
+        and n.get("attempt_count", 0) < MAX_ATTEMPTS
         and set(n.get("depends_on", [])) <= completed_ids
     ][:slots]
 
@@ -188,6 +189,50 @@ def run_one_cycle(root: Path) -> dict[str, Any]:
         if returncode == 0:
             entry["status"] = "completed"
             entry["last_error"] = None
+
+            # If this is a planning node, save output as pending_plan.json
+            # and transition the workflow to awaiting_confirm
+            if node_def.get("mode") == "planning":
+                plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
+                plan_path.parent.mkdir(parents=True, exist_ok=True)
+                # Try to extract JSON from output (claude may wrap with extra text)
+                saved = False
+                if output:
+                    # First try: direct JSON parse
+                    try:
+                        plan_data = json.loads(output)
+                        plan_path.write_text(json.dumps(plan_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                        saved = True
+                    except json.JSONDecodeError:
+                        # Second try: find JSON block in output
+                        import re
+                        match = re.search(r'\{[\s\S]*"nodes"\s*:\s*\[[\s\S]*\]\s*[\s\S]*\}', output)
+                        if match:
+                            try:
+                                plan_data = json.loads(match.group())
+                                plan_path.write_text(json.dumps(plan_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                                saved = True
+                            except json.JSONDecodeError:
+                                pass
+                if saved:
+                    manifest["workflow_status"] = "awaiting_confirm"
+                else:
+                    # Planning produced no parseable plan — stay in planning for retry
+                    entry["last_error"] = "planner output was not valid JSON"
+                    entry["status"] = "failed"
+
+            # Save output to artifacts for non-planning nodes
+            elif output and node_def.get("exit_artifacts"):
+                artifact_path = root / node_def["exit_artifacts"][0]
+                try:
+                    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        data = json.loads(output)
+                        artifact_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                    except json.JSONDecodeError:
+                        artifact_path.write_text(output, encoding="utf-8")
+                except Exception as e:
+                    print(f"Failed to save artifact {artifact_path}: {e}")
         else:
             entry["status"] = "failed"
             entry["last_error"] = output[:500] if output else "non-zero exit"

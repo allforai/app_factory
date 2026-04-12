@@ -426,7 +426,8 @@ def _confirm_workflow(root: Path, answer: str) -> list[str]:
     data = json.loads(plan_path.read_text(encoding="utf-8"))
 
     if answer == "y":
-        # Append new nodes to manifest
+        from devforge.workflow.store import write_node
+        # Append new nodes to manifest AND write node definition files
         for node_def in data["nodes"]:
             manifest["nodes"].append({
                 "id": node_def["id"],
@@ -441,6 +442,17 @@ def _confirm_workflow(root: Path, answer: str) -> list[str]:
                 "last_started_at": None,
                 "last_completed_at": None,
                 "last_error": None,
+            })
+            # Write the full node definition so engine can read goal/knowledge_refs
+            write_node(root, wf_id, {
+                "id": node_def["id"],
+                "capability": node_def.get("capability", ""),
+                "goal": node_def.get("goal", ""),
+                "exit_artifacts": node_def.get("exit_artifacts", []),
+                "knowledge_refs": node_def.get("knowledge_refs", []),
+                "executor": node_def.get("executor", "codex"),
+                "mode": node_def.get("mode", None),
+                "depends_on": node_def.get("depends_on", []),
             })
         plan_path.unlink()
         manifest["workflow_status"] = "running"  # type: ignore[typeddict-item]
