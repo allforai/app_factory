@@ -104,6 +104,17 @@ def format_executor_payload(executor_name: str, runtime_context: dict[str, Any])
             "result_contract": _result_contract(),
         }
 
+    if executor_name == "python":
+        return {
+            "style": "local_acceptance",
+            "brief": packet.get("brief", ""),
+            "focus": focus,
+            "checks": packet.get("acceptance", []),
+            "previous_attempts": packet.get("previous_attempts", {}),
+            "handoff_notes": packet.get("incoming_handoff_notes", []),
+            "result_contract": _result_contract(),
+        }
+
     return {
         "style": "generic",
         "runtime_context": runtime_context,

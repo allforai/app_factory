@@ -9,6 +9,7 @@ from devforge.executors import (
     PULL_POLICY_OVERRIDE_SCHEMA,
     ClaudeCodeAdapter,
     CodexAdapter,
+    PythonAdapter,
     format_executor_payload,
     normalize_pull_policy_overrides,
     resolve_pull_strategy,
@@ -281,6 +282,37 @@ def test_codex_adapter_can_return_subprocess_final_result(monkeypatch) -> None:
     assert dispatch.accepted is True
     assert dispatch.metadata["submission_receipt"]["metadata"]["transport"] == "subprocess"
     assert dispatch.metadata["submission_receipt"]["metadata"]["final_result"]["summary"] == "real executor output"
+
+
+def test_python_adapter_includes_deliverables_for_local_acceptance() -> None:
+    adapter = PythonAdapter()
+    work_package = WorkPackage(
+        work_package_id="wp-accept",
+        initiative_id="i1",
+        project_id="p1",
+        phase="acceptance",
+        domain="core",
+        role_id="integration_owner",
+        title="close acceptance",
+        goal="write acceptance report",
+        status="ready",
+        deliverables=["docs/devforge/bootstrap-acceptance.md"],
+    )
+    runtime_context = {
+        "cycle_id": "cycle-0200",
+        "node_knowledge_packet": {
+            "brief": "close acceptance",
+            "focus": {"phase": "acceptance", "role_id": "integration_owner", "domain": "core"},
+            "acceptance": ["report blockers"],
+            "incoming_handoff_notes": ["network unavailable"],
+        },
+    }
+
+    request = adapter.prepare_request(work_package, runtime_context)
+
+    assert request["cycle_id"] == "cycle-0200"
+    assert request["goal"] == "write acceptance report"
+    assert request["deliverables"] == ["docs/devforge/bootstrap-acceptance.md"]
 
 
 def test_parse_subprocess_output_extracts_structured_result_fields() -> None:

@@ -9,6 +9,8 @@ def test_build_claude_code_command():
 def test_build_codex_command():
     cmd = build_codex_command(prompt="implement auth", working_dir="/tmp/project")
     assert "codex" in cmd[0]
+    assert cmd[1:5] == ["exec", "--full-auto", "--cd", "/tmp/project"]
+    assert cmd[-1] == "implement auth"
 
 def test_subprocess_transport_submit():
     transport = SubprocessTransport()

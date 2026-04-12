@@ -15,7 +15,12 @@ from devforge.topology import WorkspaceCandidate, WorkspaceModelingDecision, cla
 from .base import ClaudeCodeTaskRequest, CodexTaskRequest, ExecutorDispatch, SubmissionReceipt
 from .payloads import format_executor_payload
 from .pull_policy import resolve_pull_strategy
-from .subprocess_transport import SubprocessTransport, build_claude_code_command, build_codex_command
+from .subprocess_transport import (
+    SubprocessTransport,
+    build_claude_code_command,
+    build_codex_command,
+    build_python_local_command,
+)
 
 
 @dataclass(slots=True)
@@ -258,6 +263,19 @@ class PythonAdapter(BaseExecutorAdapter):
             supported_phases=("concept_collect", "acceptance", "requirement_patch"),
             supported_roles=("product_manager", "execution_planner", "integration_owner"),
         )
+
+    def build_request(self, work_package: WorkPackage, runtime_context: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "executor": self.name,
+            "work_package_id": work_package.work_package_id,
+            "cycle_id": runtime_context.get("cycle_id"),
+            "goal": work_package.goal,
+            "deliverables": work_package.deliverables,
+            "payload": format_executor_payload(self.name, runtime_context),
+        }
+
+    def _build_live_command(self, request_dict: dict[str, Any]) -> list[str] | None:
+        return build_python_local_command(request_dict, request_dict.get("working_dir") or os.getcwd())
 
 
 class ClaudeCodeAdapter(BaseExecutorAdapter):

@@ -1,5 +1,6 @@
 """Real subprocess transport for CLI-based executors."""
 from __future__ import annotations
+import json
 import subprocess
 import time
 from dataclasses import dataclass
@@ -77,8 +78,17 @@ def build_claude_code_command(prompt, working_dir, *, model=None, max_turns=None
 
 
 def build_codex_command(prompt, working_dir, *, model=None):
-    cmd = ["codex", "--approval-mode", "full-auto", "--quiet"]
+    cmd = ["codex", "exec", "--full-auto", "--cd", working_dir]
     if model:
         cmd.extend(["--model", model])
     cmd.append(prompt)
     return cmd
+
+
+def build_python_local_command(request, working_dir):
+    return [
+        "python",
+        "-m",
+        "devforge.executors.local_runner",
+        json.dumps(request),
+    ]
