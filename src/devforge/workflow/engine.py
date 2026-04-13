@@ -14,12 +14,10 @@ import json
 from devforge.workflow.artifacts import check_artifacts
 from devforge.executors.subprocess_transport import build_codex_command
 from devforge.workflow.models import (
-    EpochMetadata,
     NodeDefinition,
     NodeManifestEntry,
     NodeStrategy,
     TransitionEntry,
-    WorkflowIntent,
     WorkflowManifest,
     WorkflowStatus,
 )
@@ -27,10 +25,8 @@ from devforge.workflow.store import (
     active_workflow_id,
     append_transition,
     read_index,
-    read_current_intent,
     read_manifest,
     read_node,
-    write_current_intent,
     write_index,
     write_manifest,
 )
@@ -46,132 +42,6 @@ _CODE_REPLICATE_SCRIPT = _MYSKILLS_ROOT / "shared" / "scripts" / "code-replicate
 _CODE_REPLICATE_PYTHONPATH = str(_CODE_REPLICATE_SCRIPT.parent)
 _AUDIT_CHECKLIST_REF = "knowledge/content/vault/static-analysis-checklist.md"
 _DIAGNOSIS_REF = "knowledge/content/vault/diagnosis.md"
-_ALIGNMENT_AUDIT_REF = "knowledge/content/vault/feedback-protocol.md"
-_ITERATIVE_CONVERGENCE_SOP = "\n".join([
-    "Iterative Convergence SOP",
-    "1. Treat the mission as evolvable state; if evidence disproves the original framing, update the mission rather than forcing the old plan.",
-    "2. Apply residual correction by depth: code residual -> patch-level fix, logic residual -> rewind functional map, intent residual -> rewind project concept.",
-    "3. Converge inward: keep derivations bounded, prefer smaller corrections each epoch, and stop expanding when the work no longer sharpens the true need.",
-])
-
-
-def _default_epoch() -> EpochMetadata:
-    return {
-        "epoch_count": 0,
-        "failure_history": [],
-        "last_failure_at": None,
-    }
-
-
-def _ensure_epoch(node: NodeManifestEntry) -> EpochMetadata:
-    epoch = node.get("epoch")
-    if not isinstance(epoch, dict):
-        epoch = _default_epoch()
-        node["epoch"] = epoch
-        return epoch
-    if not isinstance(epoch.get("epoch_count"), int):
-        epoch["epoch_count"] = 0
-    if not isinstance(epoch.get("failure_history"), list):
-        epoch["failure_history"] = []
-    if "last_failure_at" not in epoch:
-        epoch["last_failure_at"] = None
-    node["epoch"] = epoch
-    return epoch
-
-
-def _record_failure(node: NodeManifestEntry, reason: str | None, *, when: str | None = None) -> None:
-    message = (reason or "").strip()
-    if not message:
-        return
-    epoch = _ensure_epoch(node)
-    epoch["failure_history"].append(message)
-    epoch["failure_history"] = epoch["failure_history"][-5:]
-    epoch["last_failure_at"] = when
-
-
-def _bump_epoch(node: NodeManifestEntry, *, reason: str | None = None, when: str | None = None) -> None:
-    epoch = _ensure_epoch(node)
-    epoch["epoch_count"] += 1
-    if reason:
-        _record_failure(node, reason, when=when)
-
-
-def _load_current_intent(root: Path, wf_id: str, *, manifest: WorkflowManifest | None = None) -> WorkflowIntent:
-    try:
-        intent = read_current_intent(root, wf_id)
-    except FileNotFoundError:
-        if manifest is None:
-            try:
-                manifest = read_manifest(root, wf_id)
-            except FileNotFoundError:
-                manifest = {
-                    "id": wf_id,
-                    "goal": "",
-                    "created_at": _now(),
-                    "workflow_status": "planning",
-                    "nodes": [],
-                }
-        intent: WorkflowIntent = {
-            "goal": manifest.get("goal", ""),
-            "updated_at": manifest.get("created_at", _now()),
-            "updated_by": "manifest-fallback",
-            "lessons_learned": [],
-            "active_hypotheses": [],
-        }
-        write_current_intent(root, wf_id, intent)
-    intent.setdefault("lessons_learned", [])
-    intent.setdefault("active_hypotheses", [])
-    return intent
-
-
-def _sync_index_goal(root: Path, wf_id: str, goal: str) -> None:
-    index = read_index(root)
-    for entry in index["workflows"]:
-        if entry["id"] == wf_id:
-            entry["goal"] = goal
-            break
-    write_index(root, index)
-
-
-def _sync_manifest_goal_with_intent(root: Path, manifest: WorkflowManifest) -> WorkflowIntent:
-    intent = _load_current_intent(root, manifest["id"], manifest=manifest)
-    manifest["goal"] = intent.get("goal", manifest.get("goal", ""))
-    _sync_index_goal(root, manifest["id"], manifest["goal"])
-    return intent
-
-
-def _normalize_string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    result: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        text = item.strip()
-        if text and text not in result:
-            result.append(text)
-    return result
-
-
-def _render_current_intent(intent: WorkflowIntent) -> str:
-    lessons = _normalize_string_list(intent.get("lessons_learned", []))[:8]
-    hypotheses = _normalize_string_list(intent.get("active_hypotheses", []))[:8]
-    lesson_lines = [f"- {item}" for item in lessons] or ["- none"]
-    hypothesis_lines = [f"- {item}" for item in hypotheses] or ["- none"]
-    lines = [
-        "Current Intent",
-        "Treat this as the live project vision. It overrides stale interpretations of the original goal.",
-        f"- goal: {intent.get('goal', '').strip() or 'unspecified'}",
-        f"- updated_by: {intent.get('updated_by', 'unknown')}",
-        f"- updated_at: {intent.get('updated_at', 'unknown')}",
-        "",
-        "Lessons Learned",
-        *lesson_lines,
-        "",
-        "Active Hypotheses",
-        *hypothesis_lines,
-    ]
-    return "\n".join(lines)
 
 
 def _default_strategy(node: NodeDefinition | NodeManifestEntry) -> NodeStrategy | None:
@@ -241,7 +111,6 @@ def _append_manifest_node(manifest: WorkflowManifest, node_def: NodeDefinition, 
         "last_error": None,
         "pid": None,
         "log_path": None,
-        "epoch": _default_epoch(),
     })
 
 
@@ -368,7 +237,6 @@ def _remove_artifact_paths(root: Path, paths: list[str]) -> None:
 
 
 def _mark_node_pending(node: NodeManifestEntry) -> None:
-    _bump_epoch(node, reason=node.get("last_error"), when=_now())
     node["status"] = "pending"
     node["last_error"] = None
     node["last_started_at"] = None
@@ -378,113 +246,10 @@ def _mark_node_pending(node: NodeManifestEntry) -> None:
 
 
 def _mark_node_stale(node: NodeManifestEntry, *, rewind_source: str) -> None:
-    _bump_epoch(node, reason=f"stale due to rewind from `{rewind_source}`", when=_now())
     node["status"] = "stale"
     node["last_error"] = f"stale due to rewind from `{rewind_source}`"
     node["pid"] = None
     node["log_path"] = None
-
-
-def _normalize_lessons(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
-
-
-def _apply_intent_update(
-    root: Path,
-    manifest: WorkflowManifest,
-    *,
-    goal: str,
-    updated_by: str,
-    lessons: list[str] | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> None:
-    if not goal.strip():
-        return
-    current = _load_current_intent(root, manifest["id"], manifest=manifest)
-    merged_lessons = list(current.get("lessons_learned", []))
-    for lesson in lessons or []:
-        if lesson not in merged_lessons:
-            merged_lessons.append(lesson)
-    updated: WorkflowIntent = {
-        "goal": goal.strip(),
-        "updated_at": _now(),
-        "updated_by": updated_by,
-        "lessons_learned": merged_lessons[-8:],
-    }
-    if metadata:
-        updated["metadata"] = metadata
-    write_current_intent(root, manifest["id"], updated)
-    manifest["goal"] = updated["goal"]
-    _sync_index_goal(root, manifest["id"], updated["goal"])
-
-
-def _resolve_rewind_target(
-    manifest: WorkflowManifest,
-    payload: dict[str, Any],
-    rewind_level: int,
-) -> NodeManifestEntry | None:
-    target_node_id = payload.get("target_node_id")
-    if isinstance(target_node_id, str) and target_node_id:
-        return next((entry for entry in manifest["nodes"] if entry["id"] == target_node_id), None)
-
-    if rewind_level == 3:
-        level_three_hints = {"project-concept", "discover", "discovery", "concept"}
-        for entry in manifest["nodes"]:
-            node_id = entry["id"].lower()
-            if node_id == "project-concept" or any(hint in node_id for hint in level_three_hints):
-                return entry
-    if rewind_level == 2:
-        for entry in manifest["nodes"]:
-            node_id = entry["id"].lower()
-            if node_id == "functional-map" or "functional-map" in node_id:
-                return entry
-
-    if manifest["nodes"]:
-        return min(manifest["nodes"], key=lambda item: item.get("depth", 0))
-    return None
-
-
-def _process_intent_json_update(
-    root: Path,
-    manifest: WorkflowManifest,
-    node: NodeManifestEntry,
-    node_def: NodeDefinition,
-) -> bool:
-    intent_path = root / ".devforge" / "artifacts" / node["id"] / "intent.json"
-    if not intent_path.exists():
-        return False
-    try:
-        payload = json.loads(intent_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        _log.exception("Failed to parse intent.json for node %s", node["id"])
-        return False
-    if not isinstance(payload, dict):
-        _log.warning("Ignoring non-object intent.json for node %s", node["id"])
-        return False
-    goal = payload.get("goal") or payload.get("mission") or payload.get("current_goal")
-    if not isinstance(goal, str) or not goal.strip():
-        _log.warning("Ignoring intent.json without goal for node %s", node["id"])
-        return False
-    lessons = _normalize_lessons(payload.get("lessons_learned"))
-    if not lessons and node.get("last_error"):
-        lessons = [node["last_error"]]
-    _apply_intent_update(
-        root,
-        manifest,
-        goal=goal,
-        updated_by=node["id"],
-        lessons=lessons,
-        metadata={
-            "source_node_capability": node_def.get("capability"),
-            "summary": payload.get("summary"),
-        },
-    )
-    intent_path.rename(intent_path.with_name("intent.processed.json"))
-    return True
 
 
 def _process_node_rewind(root: Path, manifest: WorkflowManifest, node: NodeManifestEntry) -> bool:
@@ -502,30 +267,18 @@ def _process_node_rewind(root: Path, manifest: WorkflowManifest, node: NodeManif
         _log.warning("Ignoring non-object rewind.json for node %s", node["id"])
         return False
 
-    raw_level = payload.get("rewind_level", payload.get("level", 2))
-    try:
-        rewind_level = int(raw_level)
-    except (TypeError, ValueError):
-        rewind_level = 1
-    rewind_level = max(1, min(rewind_level, 3))
+    target_node_id = payload.get("target_node_id")
+    if not isinstance(target_node_id, str) or not target_node_id:
+        _log.warning("Ignoring rewind.json without target_node_id for node %s", node["id"])
+        return False
 
-    target = _resolve_rewind_target(manifest, payload, rewind_level)
+    target = next((entry for entry in manifest["nodes"] if entry["id"] == target_node_id), None)
     if target is None:
-        _log.warning("Ignoring rewind.json with unresolved target from node %s", node["id"])
+        _log.warning("Ignoring rewind.json for unknown target %s from node %s", target_node_id, node["id"])
         return False
 
     reason = payload.get("reason")
     rationale = reason if isinstance(reason, str) and reason else f"rewind requested by {node['id']}"
-    if isinstance(payload.get("evolved_goal"), str) and payload["evolved_goal"].strip():
-        _apply_intent_update(
-            root,
-            manifest,
-            goal=payload["evolved_goal"].strip(),
-            updated_by=node["id"],
-            lessons=_normalize_lessons(payload.get("lessons_learned")) or [rationale],
-            metadata={"rewind_level": rewind_level, "source": node["id"]},
-        )
-
     _remove_artifact_paths(root, target.get("exit_artifacts", []))
     _mark_node_pending(target)
     append_transition(root, manifest["id"], {
@@ -537,8 +290,7 @@ def _process_node_rewind(root: Path, manifest: WorkflowManifest, node: NodeManif
         "error": rationale,
     })
 
-    descendants = _dependency_descendants(manifest, target["id"]) if rewind_level >= 2 else []
-    for descendant in descendants:
+    for descendant in _dependency_descendants(manifest, target["id"]):
         node_def = _load_node_definition(root, manifest["id"], descendant["id"], descendant)
         if _is_meta_node(node_def, descendant):
             continue
@@ -721,10 +473,7 @@ def apply_strategy_postprocessing(
 ) -> list[str]:
     if "strategy" not in node:
         node["strategy"] = resolve_node_strategy(node_def)
-    _ensure_epoch(node)
     spawned: list[str] = []
-    if node["status"] == "completed":
-        _process_intent_json_update(root, manifest, node, node_def)
     if node["status"] == "completed" and resolve_node_strategy(node_def) == "GOVERNANCE":
         audit = _audit_node_outputs(root, node, node_def)
         if audit["violations"]:
@@ -736,55 +485,12 @@ def apply_strategy_postprocessing(
 
 def _resolve_meta_parent_states(manifest: WorkflowManifest) -> None:
     for node in manifest["nodes"]:
-        _ensure_epoch(node)
         if node["status"] == "needs_refactor":
             children = _child_nodes(manifest, node["id"])
             if children and all(child["status"] == "completed" for child in children if child["id"].startswith("refactor-")):
                 node["status"] = "completed"
                 node["last_error"] = None
                 node["last_completed_at"] = _now()
-
-
-def _is_terminal_alignment_node(node_def: NodeDefinition | None, node: NodeManifestEntry) -> bool:
-    capability = node_def.get("capability") if node_def else None
-    return capability == "alignment-audit" or node["id"] == "alignment-audit"
-
-
-def _ensure_alignment_audit_node(root: Path, manifest: WorkflowManifest) -> None:
-    existing = next((node for node in manifest["nodes"] if node["id"] == "alignment-audit"), None)
-    if existing is not None:
-        return
-
-    candidate_nodes: list[NodeManifestEntry] = []
-    for node in manifest["nodes"]:
-        node_def = _load_node_definition(root, manifest["id"], node["id"], node)
-        if node_def.get("mode") == "planning" or _is_terminal_alignment_node(node_def, node):
-            continue
-        candidate_nodes.append(node)
-
-    if not candidate_nodes or not all(node["status"] == "completed" for node in candidate_nodes):
-        return
-
-    intent = _sync_manifest_goal_with_intent(root, manifest)
-    report_path = _META_BUS_ROOT / "alignment" / f"{manifest['id']}.json"
-    audit_node: NodeDefinition = {
-        "id": "alignment-audit",
-        "capability": "alignment-audit",
-        "strategy": "FULL_STACK_VALIDATION",
-        "goal": (
-            "Audit whether the current codebase reflects the evolved mission. "
-            f"Read `.devforge/workflows/{manifest['id']}/current_intent.json`, compare the implemented artifacts "
-            f"against the active mission `{intent['goal']}`, identify any concept/feature/code residual drift, "
-            f"and write the verdict to `{report_path}` with fields `status`, `goal`, `drift`, `lessons_learned`, and `summary`."
-        ),
-        "exit_artifacts": [str(report_path)],
-        "knowledge_refs": [_ALIGNMENT_AUDIT_REF, _DIAGNOSIS_REF],
-        "executor": "codex",
-        "mode": None,
-        "depends_on": [node["id"] for node in candidate_nodes],
-    }
-    _write_meta_node(root, manifest["id"], audit_node)
-    _append_manifest_node(manifest, audit_node, parent_node_id=None)
 
 
 def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManifest:
@@ -799,9 +505,7 @@ def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManif
     Nodes with empty exit_artifacts are not automatically completed.
     """
     updated = copy.deepcopy(manifest)
-    _sync_manifest_goal_with_intent(root, updated)
     for node in updated["nodes"]:
-        _ensure_epoch(node)
         if node.get("mode") in ("planning", "discovery"):
             continue  # artifact-based completion doesn't apply; spawns handled below
 
@@ -832,205 +536,13 @@ def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManif
                 node["last_completed_at"] = _now()
                 apply_strategy_postprocessing(root, updated, node, node_def)
     _resolve_meta_parent_states(updated)
-    intent_updated = process_all_intent_updates(root, updated)
-    rewound = process_all_node_rewinds(root, intent_updated)
-    _ensure_alignment_audit_node(root, rewound)
-    return process_all_node_spawns(root, rewound)
+    return process_all_node_spawns(root, process_all_node_rewinds(root, updated))
 
 
 _BUILTIN_KNOWLEDGE = Path(__file__).resolve().parent.parent / "knowledge" / "content"
 _DEFAULT_ATTENTION_WEIGHT = 1.0
 _HIGH_ATTENTION_WEIGHT = 1.5
 _CRITICAL_ATTENTION_WEIGHT = 2.5
-
-
-def _intent_update_path(root: Path, node_id: str) -> Path:
-    return root / ".devforge" / "artifacts" / node_id / "intent_update.json"
-
-
-def _merge_intent_update(
-    current: WorkflowIntent,
-    payload: dict[str, Any],
-    *,
-    node_id: str,
-    attention_weight: float,
-) -> tuple[WorkflowIntent, bool]:
-    merged: WorkflowIntent = {
-        "goal": current.get("goal", ""),
-        "updated_at": current.get("updated_at", _now()),
-        "updated_by": current.get("updated_by", "unknown"),
-        "lessons_learned": _normalize_string_list(current.get("lessons_learned", [])),
-        "active_hypotheses": _normalize_string_list(current.get("active_hypotheses", [])),
-        "metadata": dict(current.get("metadata", {})),
-    }
-    changed = False
-
-    lessons = _normalize_string_list(payload.get("lessons_learned"))
-    if lessons:
-        merged_lessons = merged["lessons_learned"] + [item for item in lessons if item not in merged["lessons_learned"]]
-        if merged_lessons != merged["lessons_learned"]:
-            merged["lessons_learned"] = merged_lessons
-            changed = True
-
-    hypotheses = _normalize_string_list(payload.get("active_hypotheses"))
-    if hypotheses and hypotheses != merged.get("active_hypotheses", []):
-        merged["active_hypotheses"] = hypotheses
-        changed = True
-
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict) and metadata:
-        next_metadata = dict(merged.get("metadata", {}))
-        next_metadata.update(metadata)
-        if next_metadata != merged.get("metadata", {}):
-            merged["metadata"] = next_metadata
-            changed = True
-
-    requested_goal = payload.get("redefined_goal", payload.get("goal"))
-    level = payload.get("level", payload.get("intent_level", 1))
-    if not isinstance(level, int):
-        level = 1
-    requires_replan = bool(payload.get("requires_replan")) or level >= 3
-    can_redefine_goal = attention_weight >= _HIGH_ATTENTION_WEIGHT
-
-    if isinstance(requested_goal, str):
-        requested_goal = requested_goal.strip()
-    else:
-        requested_goal = ""
-
-    significant_change = False
-    if requested_goal and requested_goal != merged["goal"] and (can_redefine_goal or not requires_replan):
-        merged["goal"] = requested_goal
-        changed = True
-        significant_change = requires_replan or level >= 3
-    elif requested_goal and requested_goal != merged["goal"] and requires_replan and not can_redefine_goal:
-        note = (
-            f"Ignored Level 3 intent update from `{node_id}` because attention_weight "
-            f"{attention_weight:.2f} is below {_HIGH_ATTENTION_WEIGHT:.2f}."
-        )
-        if note not in merged["lessons_learned"]:
-            merged["lessons_learned"].append(note)
-            changed = True
-
-    if changed:
-        merged["updated_at"] = _now()
-        merged["updated_by"] = node_id
-    return merged, significant_change
-
-
-def _spawn_replanning_node(
-    root: Path,
-    manifest: WorkflowManifest,
-    source_node: NodeManifestEntry,
-    intent: WorkflowIntent,
-) -> str | None:
-    attempt = source_node.get("attempt_count", 0)
-    planner_id = _meta_node_id("replan", source_node["id"], attempt)
-    if any(node["id"] == planner_id for node in manifest["nodes"]):
-        return None
-
-    pending_plan_path = root / ".devforge" / "workflows" / manifest["id"] / "pending_plan.json"
-    replanner: NodeDefinition = {
-        "id": planner_id,
-        "capability": "planning",
-        "strategy": "GOVERNANCE",
-        "goal": "\n".join([
-            f"Current Intent has been redefined by `{source_node['id']}`.",
-            f"Primary goal: {intent.get('goal', '').strip() or 'unspecified'}",
-            "Rebuild the execution roadmap so downstream work aligns to the current intent instead of the original plan.",
-            f"Write the revised plan to `{pending_plan_path}`.",
-            "Preserve completed work when it still serves the current intent; replace stale future work when it does not.",
-        ]),
-        "exit_artifacts": [],
-        "knowledge_refs": [_ALIGNMENT_AUDIT_REF, "knowledge/content/vault/cross-phase-protocols.md"],
-        "executor": "claude_code",
-        "mode": "planning",
-        "depends_on": [source_node["id"]],
-    }
-    _write_meta_node(root, manifest["id"], replanner)
-    _append_manifest_node(manifest, replanner, parent_node_id=source_node["id"])
-    return planner_id
-
-
-def _block_downstream_for_replan(
-    root: Path,
-    manifest: WorkflowManifest,
-    source_node: NodeManifestEntry,
-    replan_node_id: str,
-    rationale: str,
-) -> None:
-    for node in manifest["nodes"]:
-        if node["id"] in {source_node["id"], replan_node_id}:
-            continue
-        if node["status"] == "completed":
-            continue
-        deps = node.get("depends_on", [])
-        if replan_node_id not in deps:
-            deps.append(replan_node_id)
-            node["depends_on"] = deps
-        if node["status"] in {"pending", "stale"}:
-            node["status"] = "stale"
-            node["last_error"] = rationale
-            append_transition(root, manifest["id"], {
-                "node": node["id"],
-                "status": "stale",
-                "started_at": _now(),
-                "completed_at": _now(),
-                "artifacts_created": [],
-                "error": rationale,
-            })
-
-
-def _process_intent_update(root: Path, manifest: WorkflowManifest, node: NodeManifestEntry) -> bool:
-    update_path = _intent_update_path(root, node["id"])
-    if not update_path.exists():
-        return False
-
-    try:
-        payload = json.loads(update_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        _log.exception("Failed to parse intent_update.json for node %s", node["id"])
-        return False
-    if not isinstance(payload, dict):
-        _log.warning("Ignoring non-object intent_update.json for node %s", node["id"])
-        return False
-
-    node_def = _load_node_definition(root, manifest["id"], node["id"], node)
-    current_intent = _load_current_intent(root, manifest["id"], manifest=manifest)
-    attention_weight = _resolve_attention_weight(node_def, root)
-    merged_intent, significant_change = _merge_intent_update(
-        current_intent,
-        payload,
-        node_id=node["id"],
-        attention_weight=attention_weight,
-    )
-
-    if merged_intent != current_intent:
-        write_current_intent(root, manifest["id"], merged_intent)
-        manifest["goal"] = merged_intent["goal"]
-        _sync_index_goal(root, manifest["id"], merged_intent["goal"])
-
-    if significant_change:
-        replan_node_id = _spawn_replanning_node(root, manifest, node, merged_intent)
-        if replan_node_id:
-            manifest["workflow_status"] = "planning"
-            _block_downstream_for_replan(
-                root,
-                manifest,
-                node,
-                replan_node_id,
-                f"blocked pending replanning after intent change from `{node['id']}`",
-            )
-
-    update_path.rename(update_path.with_name("intent_update.processed.json"))
-    return True
-
-
-def process_all_intent_updates(root: Path, manifest: WorkflowManifest) -> WorkflowManifest:
-    updated = copy.deepcopy(manifest)
-    for node in updated["nodes"]:
-        if node["status"] == "completed":
-            _process_intent_update(root, updated, node)
-    return updated
 
 
 def _load_codebase_snapshot(root: Path) -> dict[str, Any] | None:
@@ -1176,33 +688,6 @@ def _build_pull_tool_instructions(root: Path, wf_id: str, node: NodeDefinition) 
     ])
 
 
-def _build_intent_context(root: Path, wf_id: str) -> str:
-    return _render_current_intent(_load_current_intent(root, wf_id))
-
-
-def _build_epoch_context(node: NodeDefinition, root: Path, wf_id: str) -> str:
-    try:
-        manifest = read_manifest(root, wf_id)
-    except FileNotFoundError:
-        return ""
-    entry = next((item for item in manifest["nodes"] if item["id"] == node["id"]), None)
-    if entry is None:
-        return ""
-    epoch = _ensure_epoch(entry)
-    history = epoch.get("failure_history", [])
-    lines = [
-        "Iteration Context",
-        f"- epoch_count: {epoch.get('epoch_count', 0)}",
-    ]
-    if history:
-        lines.extend([
-            "- failure_history:",
-            *[f"  - {item}" for item in history[-3:]],
-            "- instruction: Avoid repeating the failure patterns above in this epoch.",
-        ])
-    return "\n".join(lines)
-
-
 def _load_knowledge(refs: list[str], root: Path, *, attention_weight: float = _DEFAULT_ATTENTION_WEIGHT) -> str:
     """Return push-only context built from the semantic snapshot instead of raw file contents."""
     snapshot = _load_codebase_snapshot(root)
@@ -1249,24 +734,13 @@ _NON_INTERACTIVE_SUFFIX = """
 _EXECUTOR_TIMEOUT = int(os.environ.get("DEVFORGE_EXECUTOR_TIMEOUT", "600"))
 
 
-def _build_executor_cmd(
-    node: NodeDefinition,
-    root: Path,
-    *,
-    wf_id: str = "adhoc",
-    current_intent: WorkflowIntent | None = None,
-) -> tuple[list[str], str]:
+def _build_executor_cmd(node: NodeDefinition, root: Path, *, wf_id: str = "adhoc") -> tuple[list[str], str]:
     """Build the executor command and prompt for a node. Returns (cmd, executor_name)."""
     attention_weight = _resolve_attention_weight(node, root)
     knowledge = _load_knowledge(node.get("knowledge_refs", []), root, attention_weight=attention_weight)
     pull_tool = _build_pull_tool_instructions(root, wf_id, node)
-    intent_context = ""
-    epoch_context = ""
-    if wf_id != "adhoc":
-        intent_context = _render_current_intent(current_intent) if current_intent is not None else _build_intent_context(root, wf_id)
-        epoch_context = _build_epoch_context(node, root, wf_id)
-    prompt = f"Task\n{node['goal']}"
-    context_sections = [section for section in (intent_context, epoch_context, knowledge, pull_tool, _ITERATIVE_CONVERGENCE_SOP) if section]
+    prompt = node["goal"]
+    context_sections = [section for section in (knowledge, pull_tool) if section]
     if context_sections:
         prompt = f"{prompt}\n\n---\n\n" + "\n\n---\n\n".join(context_sections)
     prompt = prompt + _NON_INTERACTIVE_SUFFIX
@@ -1328,20 +802,14 @@ def _dispatch_planning_node_with_tools(
     plan_path = root / ".devforge" / "workflows" / wf_id / "pending_plan.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
 
-    intent = _load_current_intent(root, wf_id)
     prompt = f"""{node['goal']}
 
 ## Your task as planner
-
-Current evolved mission: {intent.get('goal', '')}
-
-{_ITERATIVE_CONVERGENCE_SOP}
 
 You have full access to the codebase at {root}. Before planning:
 1. Run: ls -la {root} to see project structure
 2. Read key files: README.md, pyproject.toml/package.json/go.mod (whichever exists), any existing source directories
 3. Check if {root}/.devforge/artifacts/codebase_snapshot.json exists and read it for context from previous runs
-4. Check {root}/.devforge/workflows/{wf_id}/current_intent.json and preserve any evolved mission changes in the next plan
 
 Then create the execution plan and write it as JSON to this exact path:
 {plan_path}
@@ -1354,7 +822,6 @@ Rules:
 - exit_artifacts paths are relative to {root}
 - Use executor="claude_code" for all nodes
 - depends_on must reference node ids defined in the same plan
-- Prefer explicit node ids for concept anchors such as `project-concept` and `functional-map` when the plan has those layers, so residual rewinds can target them deterministically
 - Write the file, don't print the JSON to stdout
 """
     prompt = prompt + _NON_INTERACTIVE_SUFFIX
@@ -1543,11 +1010,9 @@ def _write_status_json(root: Path, wf_id: str, manifest: WorkflowManifest,
     stale     = [n for n in manifest["nodes"] if n["status"] == "stale"]
     total     = len(manifest["nodes"])
 
-    intent = _load_current_intent(root, wf_id, manifest=manifest)
     status = {
         "wf_id": wf_id,
-        "goal": intent.get("goal", manifest.get("goal", "")),
-        "current_intent_path": f".devforge/workflows/{wf_id}/current_intent.json",
+        "goal": manifest.get("goal", ""),
         "workflow_status": manifest["workflow_status"],
         "progress": {
             "completed": len(completed),
@@ -1566,7 +1031,6 @@ def _write_status_json(root: Path, wf_id: str, manifest: WorkflowManifest,
                 "status": n["status"],
                 "executor": n.get("executor", "codex"),
                 "attempt": n.get("attempt_count", 0),
-                "epoch_count": _ensure_epoch(n).get("epoch_count", 0),
                 "depends_on": n.get("depends_on", []),
                 "exit_artifacts": n.get("exit_artifacts", []),
                 "started_at": n.get("last_started_at"),
