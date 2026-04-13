@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict, NotRequired
+from typing import Any, Literal, TypedDict, NotRequired
 
 NodeStatus = Literal["pending", "running", "completed", "failed", "needs_refactor", "stale"]
 
@@ -16,6 +16,12 @@ NodeMode = Literal["planning", "discovery"]
 
 TransitionStatus = Literal["completed", "failed", "needs_refactor", "stale", "rewinding"]
 NodeStrategy = Literal["REVERSE_ANALYSIS", "FULL_STACK_VALIDATION", "TDD_REFACTOR", "GOVERNANCE"]
+
+
+class EpochMetadata(TypedDict):
+    epoch_count: int
+    failure_history: list[str]
+    last_failure_at: str | None
 
 
 class NodeManifestEntry(TypedDict):
@@ -34,6 +40,7 @@ class NodeManifestEntry(TypedDict):
     last_error: str | None
     pid: int | None
     log_path: str | None
+    epoch: NotRequired[EpochMetadata]
 
 
 class NodeDefinition(TypedDict):
@@ -68,6 +75,15 @@ class WorkflowIndex(TypedDict):
     schema_version: str
     active_workflow_id: str | None
     workflows: list[WorkflowIndexEntry]
+
+
+class WorkflowIntent(TypedDict):
+    goal: str
+    updated_at: str
+    updated_by: str
+    lessons_learned: list[str]
+    active_hypotheses: NotRequired[list[str]]
+    metadata: NotRequired[dict[str, Any]]
 
 
 class TransitionEntry(TypedDict):

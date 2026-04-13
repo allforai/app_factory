@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from devforge.workflow.models import (
     WorkflowIndex,
+    WorkflowIntent,
     WorkflowManifest,
     NodeDefinition,
     PullContextEvent,
@@ -17,8 +18,10 @@ from devforge.workflow.store import (
     write_node,
     append_transition,
     read_pull_events,
+    read_current_intent,
     read_transitions,
     active_workflow_id,
+    write_current_intent,
 )
 
 
@@ -52,6 +55,9 @@ def _make_manifest(wf_id: str = "wf-test-001") -> WorkflowManifest:
                 "last_started_at": None,
                 "last_completed_at": None,
                 "last_error": None,
+                "pid": None,
+                "log_path": None,
+                "epoch": {"epoch_count": 0, "failure_history": [], "last_failure_at": None},
             }
         ],
     }
@@ -88,6 +94,25 @@ def test_node_round_trip(tmp_path: Path) -> None:
     }
     write_node(tmp_path, "wf-test-001", node)
     assert read_node(tmp_path, "wf-test-001", "discover") == node
+
+
+def test_current_intent_round_trip(tmp_path: Path) -> None:
+    write_manifest(tmp_path, "wf-test-001", _make_manifest())
+    intent: WorkflowIntent = {
+        "goal": "Updated mission",
+        "updated_at": "2026-04-13T00:00:00Z",
+        "updated_by": "diagnose-node",
+        "lessons_learned": ["Need to prioritize recovery flow."],
+    }
+    write_current_intent(tmp_path, "wf-test-001", intent)
+    assert read_current_intent(tmp_path, "wf-test-001") == intent
+
+
+def test_current_intent_falls_back_to_manifest_goal(tmp_path: Path) -> None:
+    write_manifest(tmp_path, "wf-test-001", _make_manifest())
+    intent = read_current_intent(tmp_path, "wf-test-001")
+    assert intent["goal"] == "Test workflow"
+    assert intent["updated_by"] == "manifest-fallback"
 
 
 def test_append_transition_creates_jsonl(tmp_path: Path) -> None:

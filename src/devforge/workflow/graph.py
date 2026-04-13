@@ -40,7 +40,12 @@ class WorkflowState(TypedDict):
 
 
 def load_manifest_node(state: WorkflowState) -> dict:
-    manifest = read_manifest(Path(state["root"]), state["wf_id"])
+    root = Path(state["root"])
+    manifest = read_manifest(root, state["wf_id"])
+    previous_goal = manifest.get("goal", "")
+    _engine._sync_manifest_goal_with_intent(root, manifest)
+    if manifest.get("goal", "") != previous_goal:
+        write_manifest(root, state["wf_id"], manifest)
     return {"manifest": manifest}
 
 
@@ -74,9 +79,11 @@ def _dispatch_planning_node(
     elif returncode == 0 and not plan_written:
         entry["status"] = "failed"
         entry["last_error"] = "planner exited 0 but did not write pending_plan.json"
+        _engine._record_failure(entry, entry["last_error"], when=completed_at)
     else:
         entry["status"] = "failed"
         entry["last_error"] = output[:500] if output else "non-zero exit"
+        _engine._record_failure(entry, entry["last_error"], when=completed_at)
     _engine.apply_strategy_postprocessing(root, manifest, entry, node_def)
 
     transition = {
@@ -122,6 +129,7 @@ def _dispatch_discovery_node_sync(
     else:
         entry["status"] = "failed"
         entry["last_error"] = output[:500] if output else "non-zero exit"
+        _engine._record_failure(entry, entry["last_error"], when=completed_at)
     _engine.apply_strategy_postprocessing(root, manifest, entry, node_def)
 
     transition = {
@@ -186,6 +194,7 @@ def dispatch_nodes_node(state: WorkflowState) -> dict:
             except FileNotFoundError:
                 entry["status"] = "failed"
                 entry["last_error"] = f"executor not found: {node_def.get('executor', 'codex')}"
+                _engine._record_failure(entry, entry["last_error"], when=_now())
                 entry["pid"] = None
                 entry["log_path"] = None
                 _engine.apply_strategy_postprocessing(root, manifest, entry, node_def)

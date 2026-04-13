@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from devforge.workflow.models import NodeManifestEntry, NodeDefinition, WorkflowManifest, WorkflowIndex
 from devforge.workflow.engine import select_next_nodes, reconcile_artifacts, run_one_cycle, _build_executor_cmd, _load_knowledge
-from devforge.workflow.store import write_index, write_manifest, write_node, read_manifest, read_index, read_pull_events, read_node
+from devforge.workflow.store import read_current_intent, write_current_intent, write_index, write_manifest, write_node, read_manifest, read_index, read_pull_events, read_node
 
 
 def _node(
@@ -33,6 +33,7 @@ def _node(
         "last_error": None,
         "pid": pid,
         "log_path": log_path,
+        "epoch": {"epoch_count": 0, "failure_history": [], "last_failure_at": None},
     }
 
 
@@ -194,6 +195,21 @@ def test_run_one_cycle_dispatches_pending_node(tmp_path: Path) -> None:
     mock_dispatch.assert_called_once()
 
 
+def test_init_workflow_writes_current_intent(tmp_path: Path) -> None:
+    from devforge.repl import _init_workflow
+
+    _init_workflow(tmp_path, "Ship a dynamic intent workflow")
+    index = read_index(tmp_path)
+    wf_id = index["active_workflow_id"]
+    assert wf_id is not None
+
+    intent = read_current_intent(tmp_path, wf_id)
+    assert intent["goal"] == "Ship a dynamic intent workflow"
+    assert intent["updated_by"] == "wf-init"
+    assert intent["lessons_learned"] == []
+    assert intent["active_hypotheses"] == []
+
+
 def test_run_one_cycle_async_sets_running_with_pid(tmp_path: Path) -> None:
     _setup_workflow(tmp_path)
     mock_proc = _mock_popen(pid=99999)
@@ -220,7 +236,18 @@ def test_run_one_cycle_marks_node_failed_on_executor_not_found(tmp_path: Path) -
 
 
 def test_run_one_cycle_returns_all_complete_when_done(tmp_path: Path) -> None:
-    _setup_workflow(tmp_path, {"discover": "completed"})
+    _setup_workflow(tmp_path, {"discover": "completed", "alignment-audit": "completed"})
+    write_node(tmp_path, "wf-test-001", {
+        "id": "alignment-audit",
+        "capability": "alignment-audit",
+        "strategy": "FULL_STACK_VALIDATION",
+        "goal": "Audit alignment",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": ["discover"],
+    })
     result = run_one_cycle(tmp_path)
     assert result["status"] == "all_complete"
     assert result["dispatched"] == []
@@ -249,6 +276,100 @@ def test_run_one_cycle_returns_awaiting_confirm(tmp_path: Path) -> None:
     _setup_workflow(tmp_path, phase="awaiting_confirm")
     result = run_one_cycle(tmp_path)
     assert result["status"] == "awaiting_confirm"
+
+
+def test_run_one_cycle_intent_update_changes_goal_seen_by_next_node(tmp_path: Path) -> None:
+    _setup_workflow(tmp_path, {"discover": "completed", "build": "pending"})
+    manifest = read_manifest(tmp_path, "wf-test-001")
+    build = next(node for node in manifest["nodes"] if node["id"] == "build")
+    build["depends_on"] = ["discover"]
+    write_manifest(tmp_path, "wf-test-001", manifest)
+
+    discover_dir = tmp_path / ".devforge" / "artifacts" / "discover"
+    discover_dir.mkdir(parents=True, exist_ok=True)
+    (discover_dir / "intent_update.json").write_text(json.dumps({
+        "goal": "Build the corrected workflow path",
+        "lessons_learned": ["The first approach was mis-scoped."],
+        "active_hypotheses": ["A narrower implementation path will converge faster."],
+    }), encoding="utf-8")
+
+    captured: dict[str, str] = {}
+
+    def fake_build_codex_command(*, prompt: str, working_dir: str) -> list[str]:
+        captured["prompt"] = prompt
+        return ["codex", prompt]
+
+    mock_proc = _mock_popen(pid=54321)
+    with patch("devforge.workflow.engine.build_codex_command", side_effect=fake_build_codex_command), \
+            patch("devforge.workflow.engine.subprocess.Popen", return_value=mock_proc):
+        result = run_one_cycle(tmp_path)
+
+    assert result["status"] == "ok"
+    assert result["dispatched"] == ["build"]
+    assert "Build the corrected workflow path" in captured["prompt"]
+    assert "The first approach was mis-scoped." in captured["prompt"]
+    intent = read_current_intent(tmp_path, "wf-test-001")
+    assert intent["goal"] == "Build the corrected workflow path"
+    assert (discover_dir / "intent_update.processed.json").exists()
+
+
+def test_reconcile_high_attention_intent_update_spawns_replanner(tmp_path: Path) -> None:
+    from devforge.workflow.store import write_node
+
+    manifest = _manifest([
+        _node("architect", status="completed"),
+        _node("implement", depends_on=["architect"]),
+    ])
+    write_manifest(tmp_path, manifest["id"], manifest)
+    write_current_intent(tmp_path, manifest["id"], {
+        "goal": "Original goal",
+        "updated_at": "2026-04-11T00:00:00Z",
+        "updated_by": "wf-init",
+        "lessons_learned": [],
+        "active_hypotheses": [],
+    })
+    write_node(tmp_path, manifest["id"], {
+        "id": "architect",
+        "capability": "architecture",
+        "strategy": "GOVERNANCE",
+        "goal": "Reassess the architecture",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": [],
+        "attention_weight": 2.0,
+    })
+    write_node(tmp_path, manifest["id"], {
+        "id": "implement",
+        "capability": "coding",
+        "strategy": "TDD_REFACTOR",
+        "goal": "Implement the plan",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": ["architect"],
+    })
+
+    intent_dir = tmp_path / ".devforge" / "artifacts" / "architect"
+    intent_dir.mkdir(parents=True, exist_ok=True)
+    (intent_dir / "intent_update.json").write_text(json.dumps({
+        "redefined_goal": "Redefine the workflow around architectural correction",
+        "lessons_learned": ["Upstream architecture invalidated the original path."],
+        "level": 3,
+        "requires_replan": True,
+    }), encoding="utf-8")
+
+    updated = reconcile_artifacts(tmp_path, manifest)
+
+    replanner = next(node for node in updated["nodes"] if node["id"].startswith("replan-architect-"))
+    implement = next(node for node in updated["nodes"] if node["id"] == "implement")
+    assert replanner["mode"] == "planning"
+    assert implement["status"] == "stale"
+    assert replanner["id"] in implement["depends_on"]
+    assert updated["workflow_status"] == "planning"
+    assert read_current_intent(tmp_path, manifest["id"])["goal"] == "Redefine the workflow around architectural correction"
 
 
 # ---------------------------------------------------------------------------
@@ -446,6 +567,154 @@ def test_reconcile_diagnosis_rewind_resets_target_and_marks_descendants_stale(tm
 
     transitions = read_transitions(tmp_path, manifest["id"])
     assert [entry["status"] for entry in transitions] == ["rewinding", "stale", "stale"]
+
+
+def test_reconcile_level_one_rewind_resets_only_target_leaf(tmp_path: Path) -> None:
+    from devforge.workflow.store import write_node
+
+    (tmp_path / "feature.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "verify.json").write_text("{}", encoding="utf-8")
+    nodes = [
+        _node("feature", status="completed", exit_artifacts=["feature.json"]),
+        _node("verify-feature-a1", status="completed", depends_on=["feature"], exit_artifacts=["verify.json"]),
+        _node("diagnose-verify-feature-a1-a1", status="completed", depends_on=["feature"]),
+    ]
+    manifest = _manifest(nodes)
+
+    for node_id, capability in (
+        ("feature", "coding"),
+        ("verify-feature-a1", "full-stack-validation"),
+        ("diagnose-verify-feature-a1-a1", "diagnosis"),
+    ):
+        write_node(tmp_path, manifest["id"], {
+            "id": node_id,
+            "capability": capability,
+            "strategy": "TDD_REFACTOR" if capability == "coding" else "FULL_STACK_VALIDATION",
+            "goal": f"Run {node_id}",
+            "exit_artifacts": ["feature.json"] if node_id == "feature" else [],
+            "knowledge_refs": [],
+            "executor": "codex",
+            "mode": None,
+            "depends_on": ["feature"] if node_id != "feature" else [],
+        })
+
+    rewind_dir = tmp_path / ".devforge" / "artifacts" / "diagnose-verify-feature-a1-a1"
+    rewind_dir.mkdir(parents=True, exist_ok=True)
+    (rewind_dir / "rewind.json").write_text(
+        json.dumps({"target_node_id": "feature", "rewind_level": 1, "reason": "Patch residual"}),
+        encoding="utf-8",
+    )
+
+    updated = reconcile_artifacts(tmp_path, manifest)
+    feature = next(node for node in updated["nodes"] if node["id"] == "feature")
+    verify = next(node for node in updated["nodes"] if node["id"] == "verify-feature-a1")
+    assert feature["status"] == "pending"
+    assert verify["status"] == "completed"
+    assert feature["epoch"]["epoch_count"] == 1
+
+
+def test_reconcile_level_three_rewind_updates_current_intent(tmp_path: Path) -> None:
+    from devforge.workflow.store import read_current_intent, write_current_intent, write_node
+
+    write_current_intent(tmp_path, "wf-test", {
+        "goal": "Old mission",
+        "updated_at": "2026-04-13T00:00:00Z",
+        "updated_by": "wf-init",
+        "lessons_learned": [],
+    })
+    (tmp_path / "concept.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "functional.json").write_text("{}", encoding="utf-8")
+    nodes = [
+        _node("project-concept", status="completed", exit_artifacts=["concept.json"]),
+        _node("functional-map", status="completed", depends_on=["project-concept"], exit_artifacts=["functional.json"]),
+        _node("diagnose-functional-map-a1", status="completed", depends_on=["project-concept"]),
+    ]
+    manifest = _manifest(nodes)
+
+    write_node(tmp_path, manifest["id"], {
+        "id": "project-concept",
+        "capability": "product-analysis",
+        "strategy": "REVERSE_ANALYSIS",
+        "goal": "Define concept",
+        "exit_artifacts": ["concept.json"],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": [],
+    })
+    write_node(tmp_path, manifest["id"], {
+        "id": "functional-map",
+        "capability": "architecture",
+        "strategy": "GOVERNANCE",
+        "goal": "Define functional map",
+        "exit_artifacts": ["functional.json"],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": ["project-concept"],
+    })
+    write_node(tmp_path, manifest["id"], {
+        "id": "diagnose-functional-map-a1",
+        "capability": "diagnosis",
+        "strategy": "REVERSE_ANALYSIS",
+        "goal": "Diagnose intent gap",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": ["project-concept"],
+    })
+
+    rewind_dir = tmp_path / ".devforge" / "artifacts" / "diagnose-functional-map-a1"
+    rewind_dir.mkdir(parents=True, exist_ok=True)
+    (rewind_dir / "rewind.json").write_text(
+        json.dumps({
+            "rewind_level": 3,
+            "reason": "Original mission was wrong",
+            "evolved_goal": "Refocus the project around recovery-first onboarding",
+            "lessons_learned": ["User value is in recovery, not initial setup."],
+        }),
+        encoding="utf-8",
+    )
+
+    updated = reconcile_artifacts(tmp_path, manifest)
+    concept = next(node for node in updated["nodes"] if node["id"] == "project-concept")
+    functional = next(node for node in updated["nodes"] if node["id"] == "functional-map")
+    intent = read_current_intent(tmp_path, manifest["id"])
+    assert concept["status"] == "pending"
+    assert functional["status"] == "stale"
+    assert intent["goal"] == "Refocus the project around recovery-first onboarding"
+    assert "recovery" in updated["goal"].lower()
+
+
+def test_reconcile_completed_work_inserts_alignment_audit(tmp_path: Path) -> None:
+    from devforge.workflow.store import write_current_intent, write_node
+
+    write_current_intent(tmp_path, "wf-test", {
+        "goal": "Evolved mission",
+        "updated_at": "2026-04-13T00:00:00Z",
+        "updated_by": "summary-node",
+        "lessons_learned": ["Need alignment audit."],
+    })
+    nodes = [_node("feature", status="completed", exit_artifacts=[])]
+    manifest = _manifest(nodes)
+    write_node(tmp_path, manifest["id"], {
+        "id": "feature",
+        "capability": "coding",
+        "strategy": "TDD_REFACTOR",
+        "goal": "Implement feature",
+        "exit_artifacts": [],
+        "knowledge_refs": [],
+        "executor": "codex",
+        "mode": None,
+        "depends_on": [],
+    })
+
+    updated = reconcile_artifacts(tmp_path, manifest)
+    audit = next(node for node in updated["nodes"] if node["id"] == "alignment-audit")
+    audit_def = read_node(tmp_path, manifest["id"], "alignment-audit")
+    assert audit["status"] == "pending"
+    assert "current_intent.json" in audit_def["goal"]
 
 
 # ---------------------------------------------------------------------------

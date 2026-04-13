@@ -1048,9 +1048,14 @@ def _run_wf_command(args: Any, cwd: Path) -> int:
         manifest = read_manifest(cwd, wf_id)
         for node in manifest["nodes"]:
             if node["id"] == args.node_id:
+                from devforge.workflow.engine import _bump_epoch
+                _bump_epoch(node, reason=node.get("last_error"), when=node.get("last_completed_at"))
                 node["status"] = "pending"
                 node["last_error"] = None
-                node["attempt_count"] = 0
+                node["last_started_at"] = None
+                node["last_completed_at"] = None
+                node["pid"] = None
+                node["log_path"] = None
                 write_manifest(cwd, wf_id, manifest)
                 if manifest["workflow_status"] == "failed":
                     manifest["workflow_status"] = "running"

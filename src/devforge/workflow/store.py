@@ -24,12 +24,14 @@ from devforge.workflow.models import (
     PullContextEvent,
     TransitionEntry,
     WorkflowIndex,
+    WorkflowIntent,
     WorkflowManifest,
 )
 
 _WORKFLOWS_DIR = ".devforge/workflows"
 _INDEX_FILE = "index.json"
 _MANIFEST_FILE = "manifest.json"
+_CURRENT_INTENT_FILE = "current_intent.json"
 _TRANSITIONS_FILE = "transitions.jsonl"
 _PULL_EVENTS_FILE = "pull_events.jsonl"
 
@@ -52,6 +54,10 @@ def _manifest_path(root: Path, wf_id: str) -> Path:
 
 def _node_path(root: Path, wf_id: str, node_id: str) -> Path:
     return _wf_dir(root, wf_id) / "nodes" / f"{node_id}.json"
+
+
+def _intent_path(root: Path, wf_id: str) -> Path:
+    return _wf_dir(root, wf_id) / _CURRENT_INTENT_FILE
 
 
 def _transitions_path(root: Path, wf_id: str) -> Path:
@@ -103,6 +109,30 @@ def write_manifest(root: Path, wf_id: str, manifest: WorkflowManifest) -> None:
     _atomic_write(
         _manifest_path(root, wf_id),
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def read_current_intent(root: Path, wf_id: str) -> WorkflowIntent:
+    path = _intent_path(root, wf_id)
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    manifest = read_manifest(root, wf_id)
+    fallback: WorkflowIntent = {
+        "goal": manifest.get("goal", ""),
+        "updated_at": manifest.get("created_at", ""),
+        "updated_by": "manifest-fallback",
+        "lessons_learned": [],
+        "active_hypotheses": [],
+    }
+    write_current_intent(root, wf_id, fallback)
+    return fallback
+
+
+def write_current_intent(root: Path, wf_id: str, intent: WorkflowIntent) -> None:
+    _atomic_write(
+        _intent_path(root, wf_id),
+        json.dumps(intent, ensure_ascii=False, indent=2) + "\n",
     )
 
 

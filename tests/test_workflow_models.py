@@ -1,8 +1,10 @@
 from devforge.workflow.models import (
+    EpochMetadata,
     NodeManifestEntry,
     NodeDefinition,
     WorkflowManifest,
     WorkflowIndex,
+    WorkflowIntent,
     WorkflowIndexEntry,
     TransitionEntry,
     PlannerOutput,
@@ -13,6 +15,11 @@ from devforge.workflow.models import (
 
 
 def test_node_manifest_entry_is_dict() -> None:
+    epoch: EpochMetadata = {
+        "epoch_count": 0,
+        "failure_history": [],
+        "last_failure_at": None,
+    }
     entry: NodeManifestEntry = {
         "id": "discover",
         "status": "pending",
@@ -27,6 +34,9 @@ def test_node_manifest_entry_is_dict() -> None:
         "last_started_at": None,
         "last_completed_at": None,
         "last_error": None,
+        "pid": None,
+        "log_path": None,
+        "epoch": epoch,
     }
     assert isinstance(entry, dict)
     assert entry["status"] == "pending"
@@ -89,6 +99,16 @@ def test_workflow_index_is_dict() -> None:
         "workflows": [],
     }
     assert index["schema_version"] == "1.0"
+
+
+def test_workflow_intent_is_dict() -> None:
+    intent: WorkflowIntent = {
+        "goal": "Evolved mission",
+        "updated_at": "2026-04-13T00:00:00Z",
+        "updated_by": "diagnose-node",
+        "lessons_learned": ["Original checkout flow goal was underspecified."],
+    }
+    assert intent["goal"] == "Evolved mission"
 
 
 def test_planner_output_is_dict() -> None:

@@ -335,8 +335,9 @@ def _init_workflow(root: Path, name: str) -> list[str]:
     """Create a new workflow with a planner node and set it as active."""
     import re
     from datetime import datetime, timezone
-    from devforge.workflow.models import NodeDefinition, WorkflowManifest
-    from devforge.workflow.store import read_index, write_index, write_manifest, write_node
+    from devforge.workflow.engine import _ITERATIVE_CONVERGENCE_SOP
+    from devforge.workflow.models import NodeDefinition, WorkflowIntent, WorkflowManifest
+    from devforge.workflow.store import read_index, write_current_intent, write_index, write_manifest, write_node
     slug = re.sub(r"[^\w\u4e00-\u9fff]+", "-", name).strip("-")[:40]
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     wf_id = f"wf-{slug}-{ts}"
@@ -351,6 +352,9 @@ def _init_workflow(root: Path, name: str) -> list[str]:
 - 示例（差）："扫描代码库" — 路径和输出格式不明确，执行器可能需要交互确认
 
 上下文：如果 .devforge/artifacts/codebase_snapshot.json 存在，请先读取它了解项目结构，再制定计划。
+上下文：`.devforge/workflows/{wf_id}/current_intent.json` 保存当前有效使命；如果后续 evidence 推翻初始目标，新的计划必须跟随 evolved mission。
+
+{_ITERATIVE_CONVERGENCE_SOP}
 
 Use executor="claude_code" for all nodes. Do not use codex.
 Plan JSON structure: {{"nodes": [{{"id": "...", "capability": "...", "goal": "...", "exit_artifacts": ["..."], "knowledge_refs": [], "executor": "claude_code", "mode": null, "depends_on": []}}], "summary": "..."}}
@@ -385,10 +389,21 @@ Plan JSON structure: {{"nodes": [{{"id": "...", "capability": "...", "goal": "..
                 "last_started_at": None,
                 "last_completed_at": None,
                 "last_error": None,
+                "pid": None,
+                "log_path": None,
+                "epoch": {"epoch_count": 0, "failure_history": [], "last_failure_at": None},
             }
         ],
     }
     write_manifest(root, wf_id, manifest)
+    intent: WorkflowIntent = {
+        "goal": name,
+        "updated_at": created_at,
+        "updated_by": "wf-init",
+        "lessons_learned": [],
+        "active_hypotheses": [],
+    }
+    write_current_intent(root, wf_id, intent)
     write_node(root, wf_id, planner_node)
 
     index = read_index(root)
@@ -445,6 +460,9 @@ def _confirm_workflow(root: Path, answer: str) -> list[str]:
                 "last_started_at": None,
                 "last_completed_at": None,
                 "last_error": None,
+                "pid": None,
+                "log_path": None,
+                "epoch": {"epoch_count": 0, "failure_history": [], "last_failure_at": None},
             })
             # Write the full node definition so engine can read goal/knowledge_refs
             write_node(root, wf_id, {
