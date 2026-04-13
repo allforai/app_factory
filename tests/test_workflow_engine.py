@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from devforge.workflow.models import NodeManifestEntry, NodeDefinition, WorkflowManifest, WorkflowIndex
-from devforge.workflow.engine import select_next_nodes, reconcile_artifacts, run_one_cycle
-from devforge.workflow.store import write_index, write_manifest, write_node, read_manifest, read_index
+from devforge.workflow.engine import select_next_nodes, reconcile_artifacts, run_one_cycle, _build_executor_cmd, _load_knowledge
+from devforge.workflow.store import write_index, write_manifest, write_node, read_manifest, read_index, read_pull_events
 
 
 def _node(
@@ -501,6 +501,105 @@ def test_dispatch_discovery_node_incremental_prompt(tmp_path: Path) -> None:
 
     snapshot = json.loads((tmp_path / ".devforge" / "artifacts" / "codebase_snapshot.json").read_text(encoding="utf-8"))
     assert snapshot["semantics"]["architectural_insights"][0].startswith("Main Entry Point found at")
+
+
+def test_load_knowledge_uses_snapshot_index_not_full_file_content(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / ".devforge" / "artifacts" / "codebase_snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(json.dumps({
+        "structure": {
+            "tech_stack": ["python", "fastapi"],
+            "entry_points": ["src/api/main.py"],
+            "key_files": ["src/api/main.py"],
+            "directories": ["src"],
+        },
+        "modules": [
+            {
+                "path": "src/api",
+                "purpose": "Serve API entrypoints",
+                "exports": ["create_app"],
+                "depends_on": ["src/core"],
+            }
+        ],
+        "semantics": {
+            "core_domains": ["src/core"],
+            "architectural_insights": ["Main Entry Point found at src/api/main.py"],
+            "key_logic_flows": [{"from": "src/api", "to": "src/core", "reason": "request orchestration"}],
+        },
+    }), encoding="utf-8")
+    knowledge_ref = tmp_path / "knowledge.md"
+    knowledge_ref.write_text("FULL FILE CONTENT SHOULD NOT APPEAR", encoding="utf-8")
+
+    prompt_context = _load_knowledge(["knowledge.md"], tmp_path)
+
+    assert "Push Context Index" in prompt_context
+    assert "Serve API entrypoints" in prompt_context
+    assert "FULL FILE CONTENT SHOULD NOT APPEAR" not in prompt_context
+
+
+def test_build_executor_cmd_includes_pull_tool_and_attention_weighted_context(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / ".devforge" / "artifacts" / "codebase_snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(json.dumps({
+        "structure": {
+            "tech_stack": ["python"],
+            "entry_points": ["src/main.py"],
+            "key_files": ["src/main.py"],
+            "directories": ["src"],
+        },
+        "modules": [
+            {"path": "src/core", "purpose": "Domain logic", "exports": ["CoreService"], "depends_on": []},
+            {"path": "src/support", "purpose": "Support logic", "exports": ["SupportService"], "depends_on": []},
+        ],
+        "semantics": {
+            "core_domains": ["src/core"],
+            "architectural_insights": ["Core domain is isolated in src/core"],
+            "key_logic_flows": [{"from": "src/core", "to": "src/support", "reason": "shared workflow"}],
+        },
+    }), encoding="utf-8")
+    runtime_snapshot = tmp_path / ".devforge" / "devforge.snapshot.json"
+    runtime_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    runtime_snapshot.write_text(json.dumps({
+        "work_packages": [
+            {"work_package_id": "wp-1", "attention_weight": 2.0},
+        ]
+    }), encoding="utf-8")
+
+    node_def: NodeDefinition = {
+        "id": "wp-1",
+        "capability": "coding",
+        "goal": "Implement the feature",
+        "exit_artifacts": [],
+        "knowledge_refs": ["knowledge/content/vault/diagnosis.md"],
+        "executor": "claude_code",
+        "mode": None,
+        "depends_on": [],
+    }
+
+    cmd, _executor = _build_executor_cmd(node_def, tmp_path, wf_id="wf-test-001")
+    prompt = cmd[-1]
+
+    assert "--allowedTools" in cmd
+    assert "attention_weight: 2.00" in prompt
+    assert "src/core" in prompt
+    assert "pull_context(path: str) -> str" in prompt
+    assert "PYTHONPATH=src python -m devforge.workflow.pull_context" in prompt
+
+
+def test_pull_context_cli_logs_event(tmp_path: Path) -> None:
+    from devforge.workflow.pull_context import pull_context
+
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("print('hello')\n", encoding="utf-8")
+
+    content = pull_context(tmp_path, "wf-test-001", "node-1", "src/app.py")
+
+    assert "print('hello')" in content
+    events = read_pull_events(tmp_path, "wf-test-001")
+    assert len(events) == 1
+    assert events[0]["node_id"] == "node-1"
+    assert events[0]["path"] == "src/app.py"
 
 
 from devforge.session import UserIntent

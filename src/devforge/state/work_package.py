@@ -35,6 +35,7 @@ class WorkPackage:
     goal: str
     status: WorkPackageStatus
     priority: int = 50
+    attention_weight: float = 1.0
     executor: str | None = None
     fallback_executors: list[str] = field(default_factory=list)
     inputs: list[str] = field(default_factory=list)

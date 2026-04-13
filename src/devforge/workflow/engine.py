@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -410,32 +411,186 @@ def reconcile_artifacts(root: Path, manifest: WorkflowManifest) -> WorkflowManif
 
 
 _BUILTIN_KNOWLEDGE = Path(__file__).resolve().parent.parent / "knowledge" / "content"
+_DEFAULT_ATTENTION_WEIGHT = 1.0
+_HIGH_ATTENTION_WEIGHT = 1.5
+_CRITICAL_ATTENTION_WEIGHT = 2.5
 
 
-def _load_knowledge(refs: list[str], root: Path) -> str:
-    """Read knowledge_refs files and join their content. Missing files are skipped.
+def _load_codebase_snapshot(root: Path) -> dict[str, Any] | None:
+    snapshot_path = root / ".devforge" / "artifacts" / "codebase_snapshot.json"
+    if not snapshot_path.exists():
+        return None
+    try:
+        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
-    Resolution order:
-    1. Project-local: root / ref
-    2. Source tree: root / "src/devforge" / ref
-    3. DevForge built-in: strip "knowledge/" or "knowledge/content/" prefix, look in package content dir
-    """
-    parts: list[str] = []
-    for ref in refs:
-        path = root / ref
+
+def _load_runtime_snapshot(root: Path) -> dict[str, Any] | None:
+    candidates = [
+        root / ".devforge" / "devforge.snapshot.json",
+        root / "devforge.snapshot.json",
+    ]
+    for path in candidates:
         if not path.exists():
-            path = root / "src" / "devforge" / ref
-        if not path.exists():
-            if ref.startswith("knowledge/content/"):
-                builtin_ref = ref[len("knowledge/content/"):]
-            elif ref.startswith("knowledge/"):
-                builtin_ref = ref[len("knowledge/"):]
-            else:
-                builtin_ref = ref
-            path = _BUILTIN_KNOWLEDGE / builtin_ref
-        if path.exists():
-            parts.append(path.read_text(encoding="utf-8"))
-    return "\n\n---\n\n".join(parts)
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _resolve_attention_weight(node: NodeDefinition, root: Path) -> float:
+    raw = node.get("attention_weight")
+    if isinstance(raw, (int, float)):
+        return max(float(raw), 0.1)
+
+    snapshot = _load_runtime_snapshot(root)
+    if snapshot:
+        for work_package in snapshot.get("work_packages", []):
+            if work_package.get("work_package_id") != node["id"]:
+                continue
+            candidate = work_package.get("attention_weight")
+            if isinstance(candidate, (int, float)):
+                return max(float(candidate), 0.1)
+    return _DEFAULT_ATTENTION_WEIGHT
+
+
+def _matches_core_domain(path: str, core_domains: list[str]) -> bool:
+    lowered_path = path.lower()
+    return any(domain.lower() in lowered_path for domain in core_domains)
+
+
+def _render_push_context(snapshot: dict[str, Any], refs: list[str], *, attention_weight: float) -> str:
+    structure = snapshot.get("structure", {})
+    semantics = snapshot.get("semantics", {})
+    modules = list(snapshot.get("modules", []))
+    core_domains = list(semantics.get("core_domains", []))
+
+    if core_domains:
+        modules.sort(
+            key=lambda module: (
+                0 if _matches_core_domain(module.get("path", ""), core_domains) else 1,
+                module.get("path", ""),
+            )
+        )
+
+    module_limit = 6
+    insight_limit = 5
+    flow_limit = 4
+    if attention_weight >= _HIGH_ATTENTION_WEIGHT:
+        module_limit = 10
+        insight_limit = 8
+        flow_limit = 8
+    if attention_weight >= _CRITICAL_ATTENTION_WEIGHT:
+        module_limit = 16
+        insight_limit = 12
+        flow_limit = 12
+
+    module_lines = []
+    for module in modules[:module_limit]:
+        exports = ", ".join(module.get("exports", [])[:6]) or "none"
+        depends_on = ", ".join(module.get("depends_on", [])[:4]) or "none"
+        module_lines.append(
+            f"- {module.get('path', '<root>')}: {module.get('purpose', '') or 'no purpose summary'} | "
+            f"exports: {exports} | depends_on: {depends_on}"
+        )
+
+    flow_lines = []
+    for flow in semantics.get("key_logic_flows", [])[:flow_limit]:
+        flow_lines.append(
+            f"- {flow.get('from', '<unknown>')} -> {flow.get('to', '<unknown>')}: {flow.get('reason', '') or 'unspecified'}"
+        )
+    architecture_notes = [
+        f"- {item}"
+        for item in semantics.get("architectural_insights", [])[:insight_limit]
+    ] or ["- none"]
+
+    lines = [
+        "Push Context Index",
+        f"- attention_weight: {attention_weight:.2f}",
+        f"- tech_stack: {', '.join(structure.get('tech_stack', [])) or 'unknown'}",
+        f"- entry_points: {', '.join(structure.get('entry_points', [])[:8]) or 'none'}",
+        f"- key_files: {', '.join(structure.get('key_files', [])[:12]) or 'none'}",
+        f"- directories: {', '.join(structure.get('directories', [])[:12]) or 'none'}",
+        f"- core_domains: {', '.join(core_domains[:10]) or 'none'}",
+        "",
+        "Module Index",
+        *(module_lines or ["- none"]),
+        "",
+        "Architecture Notes",
+        *architecture_notes,
+    ]
+
+    if flow_lines:
+        lines.extend(["", "Key Logic Flows", *flow_lines])
+
+    if refs:
+        lines.extend([
+            "",
+            "Knowledge References",
+            *[f"- {ref}" for ref in refs],
+        ])
+
+    return "\n".join(lines)
+
+
+def _build_pull_tool_instructions(root: Path, wf_id: str, node: NodeDefinition) -> str:
+    command = (
+        "PYTHONPATH=src python -m devforge.workflow.pull_context "
+        f"--root {shlex.quote(str(root))} "
+        f"--wf-id {shlex.quote(wf_id)} "
+        f"--node-id {shlex.quote(node['id'])} "
+        "<path>"
+    )
+    return "\n".join([
+        "Pull Tool",
+        "You only have the index. Use the `pull_context(path: str) -> str` tool when you need exact implementations or artifact content.",
+        "Invoke it through Bash with this exact command template:",
+        command,
+        "Rules:",
+        "- Do not assume file contents that are not in the pushed index.",
+        "- Call `pull_context` before making implementation-level claims about a file.",
+        "- Prefer targeted pulls for the exact file you need instead of broad reads.",
+    ])
+
+
+def _load_knowledge(refs: list[str], root: Path, *, attention_weight: float = _DEFAULT_ATTENTION_WEIGHT) -> str:
+    """Return push-only context built from the semantic snapshot instead of raw file contents."""
+    snapshot = _load_codebase_snapshot(root)
+    if snapshot is None:
+        available_refs = []
+        for ref in refs:
+            path = root / ref
+            if not path.exists():
+                path = root / "src" / "devforge" / ref
+            if not path.exists():
+                if ref.startswith("knowledge/content/"):
+                    builtin_ref = ref[len("knowledge/content/"):]
+                elif ref.startswith("knowledge/"):
+                    builtin_ref = ref[len("knowledge/"):]
+                else:
+                    builtin_ref = ref
+                path = _BUILTIN_KNOWLEDGE / builtin_ref
+            if path.exists():
+                try:
+                    available_refs.append(str(path.relative_to(root)))
+                except ValueError:
+                    available_refs.append(ref)
+        lines = [
+            "Push Context Index",
+            f"- attention_weight: {attention_weight:.2f}",
+            "- codebase_snapshot: missing",
+            "- only reference paths are available until discovery produces .devforge/artifacts/codebase_snapshot.json",
+        ]
+        if available_refs:
+            lines.extend(["", "Knowledge References", *[f"- {ref}" for ref in available_refs]])
+        return "\n".join(lines)
+    return _render_push_context(snapshot, refs, attention_weight=attention_weight)
 
 
 _NON_INTERACTIVE_SUFFIX = """
@@ -450,18 +605,21 @@ _NON_INTERACTIVE_SUFFIX = """
 _EXECUTOR_TIMEOUT = int(os.environ.get("DEVFORGE_EXECUTOR_TIMEOUT", "600"))
 
 
-def _build_executor_cmd(node: NodeDefinition, root: Path) -> tuple[list[str], str]:
+def _build_executor_cmd(node: NodeDefinition, root: Path, *, wf_id: str = "adhoc") -> tuple[list[str], str]:
     """Build the executor command and prompt for a node. Returns (cmd, executor_name)."""
-    knowledge = _load_knowledge(node.get("knowledge_refs", []), root)
+    attention_weight = _resolve_attention_weight(node, root)
+    knowledge = _load_knowledge(node.get("knowledge_refs", []), root, attention_weight=attention_weight)
+    pull_tool = _build_pull_tool_instructions(root, wf_id, node)
     prompt = node["goal"]
-    if knowledge:
-        prompt = f"{prompt}\n\n---\n\n{knowledge}"
+    context_sections = [section for section in (knowledge, pull_tool) if section]
+    if context_sections:
+        prompt = f"{prompt}\n\n---\n\n" + "\n\n---\n\n".join(context_sections)
     prompt = prompt + _NON_INTERACTIVE_SUFFIX
     executor = node.get("executor", "codex")
     if executor == "codex":
         cmd = build_codex_command(prompt=prompt, working_dir=str(root))
     else:
-        cmd = ["claude", "--print", "--dangerously-skip-permissions", prompt]
+        cmd = ["claude", "--print", "--dangerously-skip-permissions", "--allowedTools", "Bash", prompt]
     return cmd, executor
 
 
@@ -480,7 +638,7 @@ def _dispatch_node_async(
     node: NodeDefinition, root: Path, wf_id: str, started_at: str,
 ) -> tuple[subprocess.Popen, Path]:
     """Start executor subprocess non-blocking. Returns (process, log_path)."""
-    cmd, executor = _build_executor_cmd(node, root)
+    cmd, executor = _build_executor_cmd(node, root, wf_id=wf_id)
 
     runs_dir = root / ".devforge" / "workflows" / wf_id / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)

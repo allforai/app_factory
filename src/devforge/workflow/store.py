@@ -21,6 +21,7 @@ from pathlib import Path
 
 from devforge.workflow.models import (
     NodeDefinition,
+    PullContextEvent,
     TransitionEntry,
     WorkflowIndex,
     WorkflowManifest,
@@ -30,6 +31,7 @@ _WORKFLOWS_DIR = ".devforge/workflows"
 _INDEX_FILE = "index.json"
 _MANIFEST_FILE = "manifest.json"
 _TRANSITIONS_FILE = "transitions.jsonl"
+_PULL_EVENTS_FILE = "pull_events.jsonl"
 
 
 def _workflows_root(root: Path) -> Path:
@@ -54,6 +56,10 @@ def _node_path(root: Path, wf_id: str, node_id: str) -> Path:
 
 def _transitions_path(root: Path, wf_id: str) -> Path:
     return _wf_dir(root, wf_id) / _TRANSITIONS_FILE
+
+
+def _pull_events_path(root: Path, wf_id: str) -> Path:
+    return _wf_dir(root, wf_id) / _PULL_EVENTS_FILE
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -132,6 +138,28 @@ def read_transitions(root: Path, wf_id: str) -> list[TransitionEntry]:
             result.append(json.loads(line))
         except json.JSONDecodeError:
             pass  # skip corrupted lines
+    return result
+
+
+def append_pull_event(root: Path, wf_id: str, entry: PullContextEvent) -> None:
+    path = _pull_events_path(root, wf_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def read_pull_events(root: Path, wf_id: str) -> list[PullContextEvent]:
+    path = _pull_events_path(root, wf_id)
+    if not path.exists():
+        return []
+    result: list[PullContextEvent] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            result.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
     return result
 
 

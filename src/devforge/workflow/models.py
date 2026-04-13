@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, NotRequired
 
 NodeStatus = Literal["pending", "running", "completed", "failed", "needs_refactor"]
 
@@ -46,6 +46,7 @@ class NodeDefinition(TypedDict):
     executor: str
     mode: NodeMode | None     # None | "planning"
     depends_on: list[str]     # list of node ids this node depends on
+    attention_weight: NotRequired[float]
 
 
 class WorkflowManifest(TypedDict):
@@ -76,6 +77,15 @@ class TransitionEntry(TypedDict):
     completed_at: str
     artifacts_created: list[str]
     error: str | None
+
+
+class PullContextEvent(TypedDict):
+    event_id: str
+    node_id: str
+    path: str
+    kind: str
+    bytes_read: int
+    created_at: str
 
 
 class PlannerOutput(TypedDict):

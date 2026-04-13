@@ -4,9 +4,11 @@ from devforge.workflow.models import (
     WorkflowIndex,
     WorkflowManifest,
     NodeDefinition,
+    PullContextEvent,
     TransitionEntry,
 )
 from devforge.workflow.store import (
+    append_pull_event,
     read_index,
     write_index,
     read_manifest,
@@ -14,6 +16,7 @@ from devforge.workflow.store import (
     read_node,
     write_node,
     append_transition,
+    read_pull_events,
     read_transitions,
     active_workflow_id,
 )
@@ -135,3 +138,20 @@ def test_active_workflow_id_returns_none_when_missing(tmp_path: Path) -> None:
 def test_active_workflow_id_returns_value(tmp_path: Path) -> None:
     write_index(tmp_path, _make_index("wf-abc"))
     assert active_workflow_id(tmp_path) == "wf-abc"
+
+
+def test_append_pull_event_creates_jsonl(tmp_path: Path) -> None:
+    entry: PullContextEvent = {
+        "event_id": "pull-1",
+        "node_id": "discover",
+        "path": "src/app.py",
+        "kind": "text",
+        "bytes_read": 42,
+        "created_at": "2026-04-13T00:00:00Z",
+    }
+    write_manifest(tmp_path, "wf-test-001", _make_manifest())
+    append_pull_event(tmp_path, "wf-test-001", entry)
+    append_pull_event(tmp_path, "wf-test-001", entry)
+    events = read_pull_events(tmp_path, "wf-test-001")
+    assert len(events) == 2
+    assert events[0]["path"] == "src/app.py"
